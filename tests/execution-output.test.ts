@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { sanitizeExecutionOutput, MAX_OUTPUT_LINES } from "../src/execution/sanitize.js";
-import { listExecutionOutputs, readExecutionOutput, saveExecutionOutput } from "../src/execution/output.js";
+import { listExecutionOutputs, readExecutionOutput, saveExecutionOutput } from "../src/compat/legacy/execution/output.js";
 import { cleanup, isolateStateDir } from "./helpers.js";
 
 describe("sanitizeExecutionOutput", () => {

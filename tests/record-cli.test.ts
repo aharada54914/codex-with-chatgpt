@@ -2,8 +2,8 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { listExecutionOutputs } from "../src/execution/output.js";
-import { appendExecutionRecord, readExecutionRecords, type ExecutionRecord } from "../src/execution/records.js";
+import { listExecutionOutputs } from "../src/compat/legacy/execution/output.js";
+import { appendExecutionRecord, readExecutionRecords, type ExecutionRecord } from "../src/compat/legacy/execution/records.js";
 import { Workspace } from "../src/workspace/manager.js";
 import { cleanup, makeTmpDir } from "./helpers.js";
 

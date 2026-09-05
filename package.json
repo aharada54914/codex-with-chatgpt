@@ -1,31 +1,38 @@
 {
   "name": "codex-with-chatgpt",
-  "version": "0.1.1",
+  "version": "2.0.0-beta.1",
   "description": "ChatGPT thinks. Codex works. Use ChatGPT as the planning brain while keeping the Codex harness.",
   "type": "module",
   "license": "MIT",
   "bin": {
-    "c2c": "./bin/c2c.js"
+    "c2c": "./bin/c2c.js",
+    "c2c-release-gate": "./bin/c2c-release-gate.js"
   },
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "generate:app-server-protocol": "node scripts/generate-app-server-protocol.mjs",
+    "check:app-server-protocol": "node scripts/generate-app-server-protocol.mjs --check",
     "dev": "tsx src/cli/index.ts",
+    "release:gate": "tsx src/release/cli.ts",
     "test": "vitest run",
+    "test:beta": "vitest run tests/beta-release-gate.test.ts tests/mcp-v2.test.ts tests/secure-mcp.test.ts tests/app-server-client.test.ts tests/app-server-protocol.test.ts tests/project-registry.test.ts tests/activity-service.test.ts tests/context-projection.test.ts tests/verification-service.test.ts tests/review-service.test.ts tests/policy-service.test.ts tests/recovery-service.test.ts tests/v1-migration.test.ts tests/legacy-isolation.test.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
   "packageManager": "pnpm@11.24.0",
   "dependencies": {
     "@modelcontextprotocol/sdk": "latest",
+    "better-sqlite3": "11.10.0",
     "commander": "^14.0.0",
     "express": "^5.1.0",
     "ignore": "^7.0.5",
     "zod": "^3.25.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "9.6.0",
     "@types/express": "^5.0.3",
     "@types/node": "^22.15.0",
     "tsx": "^4.20.0",

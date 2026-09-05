@@ -1,6 +1,6 @@
 # codex-with-chatgpt 2.0 Migration Plan
 
-Status: planned sequence; only PR-01 is implemented  
+Status: PR-01 through PR-18 implemented on sequential V2 branches; external beta profiles remain availability-gated
 Baseline: `a9f91cd98df1bc82686f57d5bc2b2993394c93be`
 
 ## 1. Migration rules

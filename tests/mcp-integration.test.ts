@@ -3,9 +3,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { startBridge, type Bridge } from "../src/bridge/server.js";
-import { appendExecutionRecord } from "../src/execution/records.js";
-import { saveExecutionOutput } from "../src/execution/output.js";
+import { startBridge, type Bridge } from "../src/compat/legacy/bridge.js";
+import { appendExecutionRecord } from "../src/compat/legacy/execution/records.js";
+import { saveExecutionOutput } from "../src/compat/legacy/execution/output.js";
 import { makeTmpDir, cleanup, write, makeGitRepo, git, isolateStateDir } from "./helpers.js";
 
 let root: string;
@@ -55,6 +55,7 @@ beforeAll(async () => {
     port: 0,
     persistRuntime: false,
     authStoreFile: path.join(makeTmpDir("auth"), "store.json"),
+    compatibilityMode: "legacy-cloudflare",
   });
   const tokens = bridge.authStore.issueTokens({
     clientId: "it-client",

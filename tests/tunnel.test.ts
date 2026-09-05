@@ -1,16 +1,21 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
+import path from "node:path";
 import type { ChildProcess } from "node:child_process";
 import { PassThrough } from "node:stream";
-import { findBinary } from "../src/tunnel/detect.js";
+import { findBinary } from "../src/compat/legacy/cloudflare/detect.js";
+import { createCloudflareTransportProvider } from "../src/compat/legacy/cloudflare/provider.js";
 import {
   CloudflaredQuickTunnel,
   parseQuickTunnelUrl,
   type CloudflaredQuickTunnelOptions,
-} from "../src/tunnel/cloudflared.js";
-import { normalizeNamedTunnelHostname } from "../src/tunnel/cloudflared-named.js";
-import { hostnameSlug, parseZoneInput, suggestedNamedHostname } from "../src/tunnel/hostname.js";
+} from "../src/compat/legacy/cloudflare/cloudflared.js";
+import {
+  CloudflaredNamedTunnel,
+  normalizeNamedTunnelHostname,
+} from "../src/compat/legacy/cloudflare/cloudflared-named.js";
+import { hostnameSlug, parseZoneInput, suggestedNamedHostname } from "../src/compat/legacy/cloudflare/hostname.js";
 import {
   chooseQuickTunnel,
   isBenignRouteError,
@@ -18,8 +23,8 @@ import {
   parseTunnelList,
   provisionNamedTunnel,
   type CloudflaredAccount,
-} from "../src/tunnel/named-provision.js";
-import { isNamedTunnelReady, needsTunnelChoice, readTunnelState } from "../src/tunnel/state.js";
+} from "../src/compat/legacy/cloudflare/named-provision.js";
+import { isNamedTunnelReady, needsTunnelChoice, readTunnelState } from "../src/compat/legacy/cloudflare/state.js";
 import { cleanup, isolateStateDir, makeTmpDir, write } from "./helpers.js";
 
 const stateDirs: string[] = [];
@@ -104,7 +109,7 @@ describe("CloudflaredQuickTunnel", () => {
     const starting = tunnel.start(3333);
     announceUrl(child);
 
-    await expect(starting).resolves.toBe(QUICK_URL);
+    await expect(starting).resolves.toMatchObject({ ok: true, provider: "cloudflare-quick", url: QUICK_URL });
     expect(spawnImpl).toHaveBeenCalledWith(
       "cloudflared",
       ["tunnel", "--url", "http://127.0.0.1:3333", "--no-autoupdate"],
@@ -122,7 +127,7 @@ describe("CloudflaredQuickTunnel", () => {
     const { child, tunnel } = setupTunnel(async () => healthResponse());
     const starting = tunnel.start(3333);
     announceUrl(child);
-    await expect(starting).resolves.toBe(QUICK_URL);
+    await expect(starting).resolves.toMatchObject({ ok: true, provider: "cloudflare-quick", url: QUICK_URL });
 
     child.stderr.write("ERR runtime connection error\n");
     await new Promise((resolve) => setImmediate(resolve));
@@ -139,9 +144,11 @@ describe("CloudflaredQuickTunnel", () => {
     const starting = tunnel.start(3333);
     announceUrl(child);
 
-    await expect(starting).rejects.toThrow(/timed out/i);
+    await expect(starting).resolves.toMatchObject({ ok: false, provider: "cloudflare-quick" });
+    const outcome = await starting;
+    if (!outcome.ok) expect(outcome.error.code).toBe("health_check_failed");
     expect(child.kill).toHaveBeenCalledWith("SIGTERM");
-    expect(tunnel.status()).toMatchObject({ running: false, url: null });
+    expect(tunnel.status()).toMatchObject({ running: false, url: null, state: "stopped" });
   });
 
   it("does not spawn twice or resolve a stopped pending start", async () => {
@@ -152,8 +159,10 @@ describe("CloudflaredQuickTunnel", () => {
 
     const concurrent = tunnel.start(3333);
     await tunnel.stop();
-    await expect(starting).rejects.toThrow(/stopped/i);
-    await expect(concurrent).rejects.toThrow(/stopped/i);
+    await expect(starting).resolves.toMatchObject({ ok: false, provider: "cloudflare-quick" });
+    await expect(concurrent).resolves.toMatchObject({ ok: false, provider: "cloudflare-quick" });
+    const stopped = await starting;
+    if (!stopped.ok) expect(stopped.error.code).toBe("start_stopped");
     expect(spawnImpl).toHaveBeenCalledTimes(1);
     expect(child.kill).toHaveBeenCalledWith("SIGTERM");
   });
@@ -170,8 +179,10 @@ describe("CloudflaredQuickTunnel", () => {
     child.exitCode = 1;
     child.emit("exit", 1, null);
     resolveFetch(healthResponse());
-    await expect(starting).rejects.toThrow(/exited/i);
-    expect(tunnel.status()).toMatchObject({ running: false, url: null });
+    await expect(starting).resolves.toMatchObject({ ok: false, provider: "cloudflare-quick" });
+    const exited = await starting;
+    if (!exited.ok) expect(exited.error.code).toBe("process_exited");
+    expect(tunnel.status()).toMatchObject({ running: false, url: null, state: "stopped" });
   });
 
   it("rejects when spawning reports an asynchronous error", async () => {
@@ -180,8 +191,10 @@ describe("CloudflaredQuickTunnel", () => {
     await new Promise((resolve) => setImmediate(resolve));
     child.emit("error", new Error("spawn cloudflared ENOENT"));
 
-    await expect(starting).rejects.toThrow(/ENOENT/i);
-    expect(tunnel.status()).toMatchObject({ running: false, url: null });
+    await expect(starting).resolves.toMatchObject({ ok: false, provider: "cloudflare-quick" });
+    const spawnFailed = await starting;
+    if (!spawnFailed.ok) expect(spawnFailed.error.code).toBe("process_spawn_failed");
+    expect(tunnel.status()).toMatchObject({ running: false, url: null, state: "stopped" });
   });
 
   it("retries a non-ready health response before resolving", async () => {
@@ -196,10 +209,196 @@ describe("CloudflaredQuickTunnel", () => {
     const starting = tunnel.start(3333);
     announceUrl(child);
 
-    await expect(starting).resolves.toBe(QUICK_URL);
+    await expect(starting).resolves.toMatchObject({ ok: true, provider: "cloudflare-quick", url: QUICK_URL });
     expect(calls).toBe(2);
     expect(cancelBody).toHaveBeenCalledTimes(1);
+  await tunnel.stop();
+  });
+
+  it("reports a typed healthy doctor result after the tunnel is ready", async () => {
+    const { child, tunnel } = setupTunnel(async () => healthResponse());
+    const starting = tunnel.start(3333);
+    announceUrl(child);
+    await expect(starting).resolves.toMatchObject({ ok: true, provider: "cloudflare-quick", url: QUICK_URL });
+
+    const report = await tunnel.doctor();
+    expect(report).toMatchObject({
+      ok: true,
+      provider: "cloudflare-quick",
+      binaryFound: true,
+      running: true,
+      url: QUICK_URL,
+      problems: [],
+    });
     await tunnel.stop();
+  });
+
+  it("reports a typed doctor failure when the binary is missing", async () => {
+    const tunnel = new CloudflaredQuickTunnel(undefined, undefined, {
+      spawnImpl: vi.fn(),
+      fetchImpl: vi.fn(),
+    });
+    const report = await tunnel.doctor();
+    expect(report).toMatchObject({
+      ok: false,
+      provider: "cloudflare-quick",
+      binaryFound: false,
+      running: false,
+      url: null,
+    });
+  });
+
+  it("reports stop_failed when the process refuses to stop", async () => {
+    const { child, tunnel } = setupTunnel(async () => healthResponse());
+    const starting = tunnel.start(3333);
+    announceUrl(child);
+    await expect(starting).resolves.toMatchObject({ ok: true });
+    child.kill.mockReturnValue(false);
+
+    await expect(tunnel.stop()).resolves.toMatchObject({
+      ok: false,
+      provider: "cloudflare-quick",
+      error: { code: "stop_failed" },
+    });
+  });
+
+  it("reports stop_failed without losing a pending process reference", async () => {
+    const { child, tunnel } = setupTunnel(() => new Promise<Response>(() => {}));
+    const starting = tunnel.start(3333);
+    announceUrl(child);
+    await new Promise((resolve) => setImmediate(resolve));
+    child.kill.mockReturnValue(false);
+
+    await expect(tunnel.stop()).resolves.toMatchObject({
+      ok: false,
+      error: { code: "stop_failed" },
+    });
+    expect(tunnel.status()).toMatchObject({ running: true, state: "starting", url: null });
+    await expect(tunnel.doctor()).resolves.toMatchObject({ running: true, ok: false });
+    child.kill.mockReturnValue(true);
+    await tunnel.stop();
+    await expect(starting).resolves.toMatchObject({ ok: false, error: { code: "start_stopped" } });
+  });
+
+  it("reports stop_failed when a failed start cannot terminate its process", async () => {
+    const { child, tunnel } = setupTunnel(async () => new Response("unavailable", { status: 503 }), 5);
+    child.kill.mockReturnValue(false);
+    const starting = tunnel.start(3333);
+    announceUrl(child);
+
+    await expect(starting).resolves.toMatchObject({ ok: false, error: { code: "stop_failed" } });
+    await expect(tunnel.start(4444)).resolves.toMatchObject({
+      ok: false,
+      error: { code: "start_conflict" },
+    });
+    child.kill.mockReturnValue(true);
+    await expect(tunnel.stop()).resolves.toMatchObject({ ok: true });
+  });
+});
+
+describe("CloudflaredNamedTunnel", () => {
+  it("matches the provider lifecycle result contract", async () => {
+    const child = new FakeCloudflaredProcess();
+    const spawnImpl = vi.fn(() => child as unknown as ChildProcess);
+    const tunnel = new CloudflaredNamedTunnel({
+      tunnelName: "c2c-demo",
+      hostname: "demo.example.com",
+      binaryOverride: "cloudflared",
+      spawnImpl,
+    });
+
+    const starting = tunnel.start(3333);
+    child.stderr.write("INF Registered tunnel connection\n");
+    await expect(starting).resolves.toEqual({
+      ok: true,
+      provider: "cloudflare-named",
+      url: "https://demo.example.com",
+    });
+    expect(tunnel.status()).toMatchObject({
+      state: "running",
+      running: true,
+      provider: "cloudflare-named",
+      url: "https://demo.example.com",
+    });
+    await expect(tunnel.doctor()).resolves.toMatchObject({ ok: true, errors: [] });
+    await expect(tunnel.stop()).resolves.toEqual({ ok: true, provider: "cloudflare-named" });
+    expect(tunnel.status()).toMatchObject({ state: "stopped", running: false, url: null });
+    expect(spawnImpl).toHaveBeenCalledOnce();
+  });
+
+  it("returns a typed binary error without spawning", async () => {
+    const tunnel = new CloudflaredNamedTunnel({
+      tunnelName: "c2c-demo",
+      hostname: "demo.example.com",
+      binaryOverride: "",
+      spawnImpl: vi.fn(),
+    });
+
+    await expect(tunnel.start(3333)).resolves.toMatchObject({
+      ok: false,
+      provider: "cloudflare-named",
+      error: { code: "binary_not_found" },
+    });
+  });
+
+  it("reports when a timed-out named process cannot be stopped", async () => {
+    const child = new FakeCloudflaredProcess();
+    child.kill.mockReturnValue(false);
+    const tunnel = new CloudflaredNamedTunnel({
+      tunnelName: "c2c-demo",
+      hostname: "demo.example.com",
+      binaryOverride: "cloudflared",
+      startTimeoutMs: 5,
+      spawnImpl: vi.fn(() => child as unknown as ChildProcess),
+    });
+
+    await expect(tunnel.start(3333)).resolves.toMatchObject({
+      ok: false,
+      provider: "cloudflare-named",
+      error: { code: "stop_failed" },
+    });
+    expect(tunnel.status()).toMatchObject({ running: true, state: "starting", url: null });
+    await expect(tunnel.doctor()).resolves.toMatchObject({ running: true, ok: false });
+    await expect(tunnel.start(4444)).resolves.toMatchObject({
+      ok: false,
+      error: { code: "start_conflict" },
+    });
+    child.kill.mockReturnValue(true);
+    await expect(tunnel.stop()).resolves.toMatchObject({ ok: true });
+  });
+
+  it("shares a pending start and resolves it as stopped", async () => {
+    const child = new FakeCloudflaredProcess();
+    const spawnImpl = vi.fn(() => child as unknown as ChildProcess);
+    const tunnel = new CloudflaredNamedTunnel({
+      tunnelName: "c2c-demo",
+      hostname: "demo.example.com",
+      binaryOverride: "cloudflared",
+      spawnImpl,
+    });
+
+    const first = tunnel.start(3333);
+    const concurrent = tunnel.start(3333);
+    await tunnel.stop();
+    await expect(first).resolves.toMatchObject({ ok: false, error: { code: "start_stopped" } });
+    await expect(concurrent).resolves.toMatchObject({ ok: false, error: { code: "start_stopped" } });
+    expect(spawnImpl).toHaveBeenCalledOnce();
+  });
+
+  it("converts a synchronous spawn exception into a typed failure", async () => {
+    const tunnel = new CloudflaredNamedTunnel({
+      tunnelName: "c2c-demo",
+      hostname: "demo.example.com",
+      binaryOverride: "cloudflared",
+      spawnImpl: () => {
+        throw new Error("spawn denied");
+      },
+    });
+
+    await expect(tunnel.start(3333)).resolves.toMatchObject({
+      ok: false,
+      error: { code: "process_spawn_failed", message: "spawn denied" },
+    });
   });
 });
 
@@ -254,6 +453,89 @@ ID                                   NAME          CREATED
   });
 });
 
+describe("bridge transport seam", () => {
+  it("keeps core bridge free of compat imports", () => {
+    const source = fs.readFileSync(path.resolve("src/bridge/server.ts"), "utf8");
+    expect(source).toContain('from "./core.js"');
+    expect(source).not.toContain("../compat/");
+  });
+
+  it("keeps core implementation free of compat imports", () => {
+    const source = fs.readFileSync(path.resolve("src/bridge/core.ts"), "utf8");
+    expect(source).not.toContain("../compat/");
+    expect(source).not.toContain("/oauth");
+    expect(source).not.toContain("/mcp");
+    expect(source).not.toContain("/admin/info");
+    expect(source).not.toContain("/admin/pairing");
+    expect(source).not.toContain("/admin/revoke-all");
+  });
+
+  it("removes legacy root facades after callers migrate to the explicit compatibility package", () => {
+    for (const file of ["src/auth", "src/pairing", "src/tunnel/cloudflared.ts", "src/tunnel/cloudflared-named.ts",
+      "src/tunnel/detect.ts", "src/tunnel/hostname.ts", "src/tunnel/named-provision.ts", "src/tunnel/state.ts",
+      "src/tunnel/cloudflare-provider.ts"]) expect(fs.existsSync(path.resolve(file))).toBe(false);
+  });
+
+  it("keeps Cloudflare-specific implementation under compat and the generic provider core-only", () => {
+    expect(fs.readFileSync(path.resolve("src/compat/legacy/cloudflare/provider.ts"), "utf8")).toContain(
+      "createWorkspaceTunnelProvider"
+    );
+    expect(fs.readFileSync(path.resolve("src/compat/legacy/cloudflare/provider.ts"), "utf8")).not.toContain(
+      "export *"
+    );
+    expect(fs.readFileSync(path.resolve("src/tunnel/factory.ts"), "utf8")).toContain("createTunnelProvider");
+    expect(fs.readFileSync(path.resolve("src/tunnel/provider.ts"), "utf8")).not.toContain("../compat/");
+  });
+
+  it("routes the V1 wiring through the compatibility bridge", () => {
+    const source = fs.readFileSync(path.resolve("src/compat/legacy/bridge.ts"), "utf8");
+    expect(source).toContain('from "./auth/store.js"');
+    expect(source).toContain('from "./auth/oauth.js"');
+    expect(source).toContain('from "./auth/middleware.js"');
+    expect(source).toContain('from "./pairing/manager.js"');
+    expect(source).toContain('from "./cloudflare/provider.js"');
+    expect(source).not.toContain('from "../../auth/');
+    expect(source).not.toContain('from "../../pairing/');
+    expect(source).not.toContain('from "../../tunnel/cloudflare-provider.js"');
+    expect(source).not.toContain('from "../../tunnel/cloudflared');
+    expect(createCloudflareTransportProvider).toBeTypeOf("function");
+  });
+
+  it("imports compat Cloudflare helpers directly from the CLI layer", () => {
+    const cliFiles: Array<[string, string[]]> = [
+      [
+        "src/cli/tunnel-commands.ts",
+        [
+          "../compat/legacy/cloudflare/named-provision.js",
+          "../compat/legacy/cloudflare/hostname.js",
+          "../compat/legacy/cloudflare/state.js",
+        ],
+      ],
+      [
+        "src/cli/shared.ts",
+        [
+          "../compat/legacy/cloudflare/detect.js",
+          "../compat/legacy/cloudflare/named-provision.js",
+          "../compat/legacy/cloudflare/hostname.js",
+          "../compat/legacy/cloudflare/state.js",
+        ],
+      ],
+      [
+        "src/cli/doctor-command.ts",
+        ["../compat/legacy/cloudflare/detect.js", "../compat/legacy/cloudflare/state.js"],
+      ],
+      [
+        "src/cli/bridge-commands.ts",
+        ["../compat/legacy/auth/store.js", "../compat/legacy/cloudflare/state.js"],
+      ],
+    ];
+    for (const [file, imports] of cliFiles) {
+      const source = fs.readFileSync(path.resolve(file), "utf8");
+      for (const needle of imports) expect(source).toContain(needle);
+    }
+  });
+});
+
 describe("tunnel preference state", () => {
   it("asks once, then remembers a quick choice", () => {
     stateDirs.push(isolateStateDir());
@@ -288,8 +570,9 @@ describe("tunnel preference state", () => {
     });
   });
 
-  it("falls back to a temporary address when named provisioning fails", () => {
+  it("returns an explicit failure when named provisioning cannot create the tunnel", () => {
     stateDirs.push(isolateStateDir());
+    expect(readTunnelState("ws2")).toMatchObject({ preference: "unset" });
     const account: CloudflaredAccount = {
       hasCert: () => true,
       login: async () => undefined,
@@ -305,9 +588,33 @@ describe("tunnel preference state", () => {
       zone: "example.com",
       account,
     }).then((result) => {
-      expect(result.fallback).toBe(true);
-      expect(result.state.preference).toBe("quick");
-      expect(result.userMessage).toMatch(/临时地址/);
+      expect(result.ok).toBe(false);
+      expect(result.fallback).toBe(false);
+      expect(result.error.message).toMatch(/no zone/);
+      expect(readTunnelState("ws2")).toMatchObject({ preference: "unset" });
+    });
+  });
+
+  it("returns an explicit failure when the hostname is invalid and does not persist quick fallback state", () => {
+    stateDirs.push(isolateStateDir());
+    const account: CloudflaredAccount = {
+      hasCert: () => true,
+      login: async () => undefined,
+      listTunnels: async () => [],
+      createTunnel: async () => ({ id: "33333333-3333-3333-3333-333333333333", name: "c2c-ws3" }),
+      routeDns: async () => undefined,
+    };
+    return provisionNamedTunnel({
+      workspaceId: "ws3",
+      workspaceName: "Demo",
+      zone: "example.com",
+      hostname: "https://bad.example.com",
+      account,
+    }).then((result) => {
+      expect(result.ok).toBe(false);
+      expect(result.fallback).toBe(false);
+      expect(result.error.message).toMatch(/invalid/i);
+      expect(readTunnelState("ws3")).toMatchObject({ preference: "unset" });
     });
   });
 });

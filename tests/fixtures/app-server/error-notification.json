@@ -1,0 +1,10 @@
+{
+  "error": {
+    "message": "unsupported protocol version",
+    "codexErrorInfo": null,
+    "additionalDetails": "expected 0.147.0 <= version < 0.148.0"
+  },
+  "willRetry": false,
+  "threadId": "0198f3c0-0000-7000-8000-000000000001",
+  "turnId": "0198f3c0-0000-7000-8000-000000000003"
+}

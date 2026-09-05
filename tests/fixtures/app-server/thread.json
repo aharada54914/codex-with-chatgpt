@@ -1,0 +1,32 @@
+{
+  "id": "0198f3c0-0000-7000-8000-000000000001",
+  "sessionId": "0198f3c0-0000-7000-8000-000000000002",
+  "forkedFromId": null,
+  "parentThreadId": null,
+  "preview": "Plan and execute a migration step",
+  "ephemeral": false,
+  "section": null,
+  "sectionEnteredAt": null,
+  "modelProvider": "openai",
+  "createdAt": 1757000000,
+  "updatedAt": 1757000001,
+  "recencyAt": 1757000001,
+  "status": {
+    "type": "active",
+    "activeFlags": ["waitingOnApproval"]
+  },
+  "path": null,
+  "cwd": "/Users/jrmag/Documents/Codex/2026-09-05/referenced-chatgpt-conversation-this-is-an/work/codex-with-chatgpt",
+  "cliVersion": "0.147.0",
+  "source": "appServer",
+  "threadSource": null,
+  "agentNickname": null,
+  "agentRole": null,
+  "gitInfo": {
+    "sha": "a9f91cd98df1bc82686f57d5bc2b2993394c93be",
+    "branch": "v2/pr-06-app-server-types",
+    "originUrl": "git@github.com:aharada54914/codex-with-chatgpt.git"
+  },
+  "name": "PR-06 fixture thread",
+  "turns": []
+}

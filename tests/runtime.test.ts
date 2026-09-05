@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { spawn } from "node:child_process";
 import path from "node:path";
-import { startBridge } from "../src/bridge/server.js";
+import { startBridge } from "../src/compat/legacy/bridge.js";
 import {
   findBridgeObservation,
   findLiveBridge,
@@ -103,6 +103,7 @@ describe("findBridgeObservation", () => {
       port: 0,
       persistRuntime: true,
       authStoreFile: auth,
+      compatibilityMode: "legacy-cloudflare",
     });
     try {
       const observation = await findBridgeObservation(bridge.workspace.id);

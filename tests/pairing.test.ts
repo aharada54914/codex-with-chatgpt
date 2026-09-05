@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { PairingManager, formatPairingCode, normalizePairingCode } from "../src/pairing/manager.js";
+import { PairingManager, formatPairingCode, normalizePairingCode } from "../src/compat/legacy/pairing/manager.js";
 
 afterEach(() => {
   vi.useRealTimers();

@@ -7,7 +7,7 @@ import {
   pathsEquivalent,
   toTomlPath,
   upsertWritableRoot,
-} from "../src/config/sandbox-allow.js";
+} from "../src/compat/legacy/state/sandbox-allow.js";
 import { makeTmpDir, cleanup } from "./helpers.js";
 
 describe("sandbox allowlist", () => {

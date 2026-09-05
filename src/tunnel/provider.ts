@@ -9,23 +9,78 @@ export interface TunnelStatus {
   url: string | null;
   provider: string;
   detail?: string;
+  state: "running" | "starting" | "stopped";
 }
 
 export interface TunnelDoctorReport {
+  ok: boolean;
   provider: string;
   binaryFound: boolean;
   binaryPath: string | null;
   running: boolean;
   url: string | null;
   problems: string[];
+  errors: TunnelError[];
 }
+
+export type TunnelErrorCode =
+  | "binary_not_found"
+  | "start_timeout"
+  | "process_exited"
+  | "process_spawn_failed"
+  | "start_conflict"
+  | "start_stopped"
+  | "health_check_failed"
+  | "stop_failed"
+  | "entitlement_missing"
+  | "profile_not_configured"
+  | "command_not_configured"
+  | "doctor_failed"
+  | "version_probe_failed"
+  | "init_failed"
+  | "readiness_not_configured"
+  | "client_incompatible"
+  | "interrupted";
+
+export interface TunnelError {
+  code: TunnelErrorCode;
+  message: string;
+  detail?: string;
+}
+
+export interface TunnelStartSuccess {
+  ok: true;
+  provider: string;
+  url: string | null;
+}
+
+export interface TunnelStartFailure {
+  ok: false;
+  provider: string;
+  error: TunnelError;
+}
+
+export type TunnelStartResult = TunnelStartSuccess | TunnelStartFailure;
+
+export interface TunnelStopSuccess {
+  ok: true;
+  provider: string;
+}
+
+export interface TunnelStopFailure {
+  ok: false;
+  provider: string;
+  error: TunnelError;
+}
+
+export type TunnelStopResult = TunnelStopSuccess | TunnelStopFailure;
 
 export interface TunnelProvider {
   readonly name: string;
   /** Start the tunnel for a local port; resolves with the public URL. */
-  start(localPort: number): Promise<string>;
-  stop(): Promise<void>;
-  restart(localPort: number): Promise<string>;
+  start(localPort: number): Promise<TunnelStartResult>;
+  stop(): Promise<TunnelStopResult>;
+  restart(localPort: number): Promise<TunnelStartResult>;
   status(): TunnelStatus;
   getPublicUrl(): string | null;
   doctor(): Promise<TunnelDoctorReport>;

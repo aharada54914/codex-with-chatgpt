@@ -6,7 +6,7 @@ import {
   prefsFile,
   readUiPrefs,
   SETUP_CHOICE_PROMPT,
-} from "../src/config/ui-prefs.js";
+} from "../src/compat/legacy/state/ui-prefs.js";
 import { cleanup, isolateStateDir } from "./helpers.js";
 
 describe("ui prefs", () => {
