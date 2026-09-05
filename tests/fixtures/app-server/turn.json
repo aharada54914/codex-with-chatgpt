@@ -1,0 +1,16 @@
+{
+  "id": "0198f3c0-0000-7000-8000-000000000003",
+  "items": [
+    {
+      "type": "plan",
+      "id": "item-plan-1",
+      "text": "Add the protocol types."
+    }
+  ],
+  "itemsView": "full",
+  "status": "inProgress",
+  "error": null,
+  "startedAt": 1757000000,
+  "completedAt": null,
+  "durationMs": null
+}

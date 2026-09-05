@@ -1,0 +1,16 @@
+export const APP_SERVER_PROTOCOL_GENERATOR = "codex-cli";
+export const APP_SERVER_PROTOCOL_GENERATOR_VERSION = "0.147.0";
+export const APP_SERVER_PROTOCOL_TESTED_VERSION = "0.147.0";
+export const APP_SERVER_PROTOCOL_IMPORT_EXTENSION = ".js";
+export const APP_SERVER_PROTOCOL_REPRODUCIBLE_COMMAND =
+  "pnpm generate:app-server-protocol";
+export const APP_SERVER_PROTOCOL_CHECK_COMMAND = "pnpm check:app-server-protocol";
+
+export const APP_SERVER_PROTOCOL_PROVENANCE = {
+  generator: APP_SERVER_PROTOCOL_GENERATOR,
+  generatorVersion: APP_SERVER_PROTOCOL_GENERATOR_VERSION,
+  testedVersion: APP_SERVER_PROTOCOL_TESTED_VERSION,
+  importExtension: APP_SERVER_PROTOCOL_IMPORT_EXTENSION,
+  reproducibleCommand: APP_SERVER_PROTOCOL_REPRODUCIBLE_COMMAND,
+  checkCommand: APP_SERVER_PROTOCOL_CHECK_COMMAND,
+} as const;

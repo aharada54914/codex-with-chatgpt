@@ -12,6 +12,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "generate:app-server-protocol": "node scripts/generate-app-server-protocol.mjs",
+    "check:app-server-protocol": "node scripts/generate-app-server-protocol.mjs --check",
     "dev": "tsx src/cli/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
