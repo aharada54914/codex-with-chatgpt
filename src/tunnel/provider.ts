@@ -36,6 +36,8 @@ export type TunnelErrorCode =
   | "profile_not_configured"
   | "command_not_configured"
   | "doctor_failed"
+  | "version_probe_failed"
+  | "init_failed"
   | "client_incompatible"
   | "interrupted";
 
@@ -48,7 +50,7 @@ export interface TunnelError {
 export interface TunnelStartSuccess {
   ok: true;
   provider: string;
-  url: string;
+  url: string | null;
 }
 
 export interface TunnelStartFailure {
