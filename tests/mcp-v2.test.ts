@@ -117,7 +117,7 @@ describe("V2 MCP data and control planes", () => {
     }).activity;
     const now = new Date().toISOString();
     repositories.approvals.insert({
-      id: "apr_other", projectId: other.projectId, activityId: activity.id, capability: "network",
+      id: "apr_other", projectId: other.projectId, activityId: activity.id, activityRevision: 0, capability: "network",
       status: "PENDING", expiresAt: null, revision: 0, createdAt: now, updatedAt: now,
     });
     const crossApproval = await client.callTool({ name: "c2c_approval_respond", arguments: {

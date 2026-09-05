@@ -44,6 +44,40 @@ export const migrations: readonly Migration[] = [
         ON projects(json_extract(payload_json, '$.rootFingerprint'))`);
     },
   },
+  {
+    version: 3,
+    name: "projection-revision-triggers",
+    apply(database) {
+      for (const table of ["approvals", "evidence", "reviews"] as const) {
+        database.exec(`
+          CREATE TRIGGER ${table}_projection_insert AFTER INSERT ON ${table}
+          BEGIN
+            UPDATE activities SET revision = revision + 1, updated_at = NEW.updated_at
+              WHERE id = json_extract(NEW.payload_json, '$.activityId');
+            UPDATE ${table} SET payload_json = json_set(
+              payload_json, '$.activityRevision',
+              (SELECT revision FROM activities WHERE id = json_extract(NEW.payload_json, '$.activityId'))
+            ) WHERE id = NEW.id;
+          END;
+          CREATE TRIGGER ${table}_projection_update AFTER UPDATE OF payload_json ON ${table}
+          WHEN json_extract(NEW.payload_json, '$.activityRevision') IS json_extract(OLD.payload_json, '$.activityRevision')
+          BEGIN
+            UPDATE activities SET revision = revision + 1, updated_at = NEW.updated_at
+              WHERE id = json_extract(NEW.payload_json, '$.activityId');
+            UPDATE ${table} SET payload_json = json_set(
+              payload_json, '$.activityRevision',
+              (SELECT revision FROM activities WHERE id = json_extract(NEW.payload_json, '$.activityId'))
+            ) WHERE id = NEW.id;
+          END;
+          CREATE TRIGGER ${table}_projection_delete AFTER DELETE ON ${table}
+          BEGIN
+            UPDATE activities SET revision = revision + 1, updated_at = OLD.updated_at
+              WHERE id = json_extract(OLD.payload_json, '$.activityId');
+          END;
+        `);
+      }
+    },
+  },
 ];
 
 export function migrate(database: Database.Database): void {

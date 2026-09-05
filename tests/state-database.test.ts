@@ -27,6 +27,7 @@ describe("durable state database", () => {
     expect(database.prepare("SELECT version FROM schema_migrations ORDER BY version").all()).toEqual([
       { version: 1 },
       { version: 2 },
+      { version: 3 },
     ]);
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
     if (process.platform !== "win32") expect(fs.statSync(directory).mode & 0o777).toBe(directoryMode);
