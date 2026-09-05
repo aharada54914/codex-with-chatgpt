@@ -31,7 +31,13 @@ export type TunnelErrorCode =
   | "start_conflict"
   | "start_stopped"
   | "health_check_failed"
-  | "stop_failed";
+  | "stop_failed"
+  | "entitlement_missing"
+  | "profile_not_configured"
+  | "command_not_configured"
+  | "doctor_failed"
+  | "client_incompatible"
+  | "interrupted";
 
 export interface TunnelError {
   code: TunnelErrorCode;

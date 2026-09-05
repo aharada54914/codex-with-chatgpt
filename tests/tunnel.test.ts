@@ -480,7 +480,6 @@ describe("bridge transport seam", () => {
       ["src/tunnel/cloudflared.ts", 'from "../compat/legacy/cloudflare/cloudflared.js"'],
       ["src/tunnel/cloudflared-named.ts", 'from "../compat/legacy/cloudflare/cloudflared-named.js"'],
       ["src/tunnel/detect.ts", 'from "../compat/legacy/cloudflare/detect.js"'],
-      ["src/tunnel/factory.ts", 'from "../compat/legacy/cloudflare/factory.js"'],
       ["src/tunnel/hostname.ts", 'from "../compat/legacy/cloudflare/hostname.js"'],
       ["src/tunnel/named-provision.ts", 'from "../compat/legacy/cloudflare/named-provision.js"'],
       ["src/tunnel/state.ts", 'from "../compat/legacy/cloudflare/state.js"'],
@@ -498,9 +497,7 @@ describe("bridge transport seam", () => {
     expect(fs.readFileSync(path.resolve("src/compat/legacy/cloudflare/provider.ts"), "utf8")).not.toContain(
       "export *"
     );
-    expect(fs.readFileSync(path.resolve("src/compat/legacy/cloudflare/factory.ts"), "utf8")).toContain(
-      'from "../../../tunnel/provider.js"'
-    );
+    expect(fs.readFileSync(path.resolve("src/tunnel/factory.ts"), "utf8")).toContain("createTunnelProvider");
     expect(fs.readFileSync(path.resolve("src/tunnel/provider.ts"), "utf8")).not.toContain("../compat/");
   });
 
