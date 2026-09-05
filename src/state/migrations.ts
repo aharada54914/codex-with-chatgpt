@@ -91,6 +91,20 @@ export const migrations: readonly Migration[] = [
           AND json_type(payload_json, '$.attempt') = 'integer'`);
     },
   },
+  {
+    version: 5,
+    name: "approval-idempotency",
+    apply(database) {
+      database.exec(`
+        CREATE UNIQUE INDEX approvals_request_idempotency_unique
+          ON approvals(json_extract(payload_json, '$.requestIdempotencyKey'))
+          WHERE json_type(payload_json, '$.requestIdempotencyKey') = 'text';
+        CREATE UNIQUE INDEX approvals_response_idempotency_unique
+          ON approvals(json_extract(payload_json, '$.responseIdempotencyKey'))
+          WHERE json_type(payload_json, '$.responseIdempotencyKey') = 'text';
+      `);
+    },
+  },
 ];
 
 export function migrate(database: Database.Database): void {

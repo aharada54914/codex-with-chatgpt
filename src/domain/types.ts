@@ -31,7 +31,21 @@ export interface Agent extends DomainRecord {
   status?: "RUNNING" | "COMPLETED" | "FAILED";
 }
 export interface Job extends DomainRecord { activityId: string; kind: string; status: string; }
-export interface Approval extends DomainRecord { activityId: string; activityRevision: number; capability: string; status: string; expiresAt: IsoTimestamp | null; }
+export interface Approval extends DomainRecord {
+  activityId: string;
+  activityRevision: number;
+  capability: string;
+  status: string;
+  expiresAt: IsoTimestamp | null;
+  requestedBy?: string;
+  scope?: { operation: string; resource: string };
+  operationId?: string;
+  requestIdempotencyKey?: string;
+  requestFingerprint?: string;
+  decidedBy?: string;
+  responseIdempotencyKey?: string;
+  responseFingerprint?: string;
+}
 export interface Evidence extends DomainRecord { activityId: string; activityRevision: number; kind: string; repositoryRevision: string; status: string; }
 export interface Review extends DomainRecord {
   activityId: string; activityRevision: number; reviewerAgentId: string; decision: string;

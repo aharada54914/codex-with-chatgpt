@@ -29,6 +29,7 @@ describe("durable state database", () => {
       { version: 2 },
       { version: 3 },
       { version: 4 },
+      { version: 5 },
     ]);
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
     if (process.platform !== "win32") expect(fs.statSync(directory).mode & 0o777).toBe(directoryMode);
