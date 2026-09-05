@@ -2,27 +2,31 @@ import express, { type Request, type Response, type NextFunction } from "express
 import type { Server } from "node:http";
 import { randomBytes } from "node:crypto";
 import { Workspace } from "../workspace/manager.js";
-import { createMcpServer } from "../mcp/server.js";
-import { createMcpHttpHandler } from "../mcp/http.js";
 import type { TunnelProvider } from "../tunnel/provider.js";
 import { Logger, nullLogger } from "../logger/index.js";
 import { DEFAULT_HOST, DEFAULT_PORT } from "../config/paths.js";
 import { SERVICE_NAME, VERSION } from "../version.js";
 import { writeRuntimeState, clearRuntimeState, type RuntimeState } from "./runtime.js";
 
-export interface BridgeCoreDependencies {
-  authStore: {
-    tokenCount(): number;
-    revokeAll(): number;
-  };
-  pairing: {
-    hasActiveSession(): boolean;
-    create(): { code: string; expiresAt: number };
-    invalidateAll(): void;
-  };
+export interface BridgeCoreContext {
+  app: express.Express;
+  workspace: Workspace;
+  host: string;
+  adminToken: string;
+  logger: Logger;
+  getPort(): number;
+  getBaseUrl(req: Request): string;
+  adminGuard(req: Request, res: Response, next: NextFunction): void;
+  getPublicBaseUrl(): string | null;
+  setPublicBaseUrl(url: string | null): void;
+  startedAt: string;
+  persistRuntime(): void;
   tunnel: TunnelProvider;
-  registerAuthRoutes(app: express.Express, getBaseUrl: (req: Request) => string, logger: Logger): void;
-  registerBearerRoute(app: express.Express, getBaseUrl: (req: Request) => string, logger: Logger): void;
+}
+
+export interface BridgeCoreDependencies {
+  tunnel: TunnelProvider;
+  extendApp?(ctx: BridgeCoreContext): void;
 }
 
 export interface BridgeOptions extends BridgeCoreDependencies {
@@ -39,8 +43,6 @@ export interface Bridge {
   port: number;
   host: string;
   adminToken: string;
-  authStore: BridgeCoreDependencies["authStore"];
-  pairing: BridgeCoreDependencies["pairing"];
   tunnel: TunnelProvider;
   getPublicBaseUrl(): string | null;
   localBaseUrl(): string;
@@ -69,24 +71,20 @@ export async function startBridge(opts: BridgeOptions): Promise<Bridge> {
   const logger = opts.logger ?? nullLogger;
   const workspace = new Workspace(opts.workspaceRoot);
   const host = opts.host ?? DEFAULT_HOST;
+  const startedAt = new Date().toISOString();
+  let port = opts.port ?? DEFAULT_PORT;
+  let publicBaseUrl: string | null = null;
   if (host !== "127.0.0.1" && host !== "::1" && host !== "localhost") {
     throw new Error("The bridge only binds to loopback addresses. Public exposure goes through the tunnel.");
   }
 
   const adminToken = `c2c_admin_${randomBytes(24).toString("base64url")}`;
-  let publicBaseUrl: string | null = null;
   const app = express();
   app.set("trust proxy", true);
   app.disable("x-powered-by");
   const getBaseUrl = (req: Request): string => publicBaseUrl ?? `${req.protocol}://${req.get("host") ?? `${host}:${port}`}`;
 
   app.get("/health", (_req, res) => res.json({ service: SERVICE_NAME, version: VERSION, workspaceId: workspace.id, status: "ok" }));
-  opts.registerAuthRoutes(app, getBaseUrl, logger);
-  const mcpHandler = createMcpHttpHandler(() => createMcpServer({ workspace, logger }), logger);
-  app.all("/mcp", express.json({ limit: "8mb" }), opts.registerBearerRoute.bind(null, app, getBaseUrl, logger) as never, (req: Request, res: Response) => void mcpHandler(req, res));
-
-  const authStore = opts.authStore;
-  const pairing = opts.pairing;
   const tunnel = opts.tunnel;
   const adminGuard = (req: Request, res: Response, next: NextFunction): void => {
     const remote = req.socket.remoteAddress ?? "";
@@ -100,17 +98,58 @@ export async function startBridge(opts: BridgeOptions): Promise<Bridge> {
     }
     next();
   };
-  app.post("/admin/pairing", adminGuard, (_req, res) => res.json(pairing.create()));
-  app.get("/admin/info", adminGuard, (_req, res) => res.json({ service: SERVICE_NAME, version: VERSION, workspaceId: workspace.id, workspaceName: workspace.name, workspaceRoot: workspace.root, port, publicUrl: publicBaseUrl, tunnel: tunnel.status(), tokenCount: authStore.tokenCount(), pairingActive: pairing.hasActiveSession(), pid: process.pid, startedAt }));
   app.post("/admin/tunnel/start", adminGuard, (_req, res) => { void tunnel.start(port).then((result) => { if (!result.ok) { res.status(500).json({ error: result.error.code, message: result.error.message, detail: result.error.detail ?? null }); return; } publicBaseUrl = result.url; persistRuntime(); res.json({ url: result.url, provider: result.provider }); }); });
   app.post("/admin/tunnel/stop", adminGuard, (_req, res) => { void tunnel.stop().then((result) => { if (!result.ok) { res.status(500).json({ error: result.error.code, message: result.error.message }); return; } publicBaseUrl = null; persistRuntime(); res.json({ stopped: true, provider: result.provider }); }); });
-  app.post("/admin/revoke-all", adminGuard, (_req, res) => { const count = authStore.revokeAll(); pairing.invalidateAll(); res.json({ revoked: count }); });
   app.post("/admin/shutdown", adminGuard, (_req, res) => { res.json({ shuttingDown: true }); setTimeout(() => void shutdown().then(() => process.exit(0)), 100); });
 
-  const { server, port } = await listen(app, host, opts.port ?? DEFAULT_PORT);
-  const startedAt = new Date().toISOString();
-  const persistRuntime = (): void => { if (opts.persistRuntime === false) return; const state: RuntimeState = { service: SERVICE_NAME, version: VERSION, workspaceId: workspace.id, workspaceRoot: workspace.root, pid: process.pid, port, adminToken, publicUrl: publicBaseUrl, startedAt }; writeRuntimeState(state); };
+  const persistRuntime = (): void => {
+    if (opts.persistRuntime === false) return;
+    const state: RuntimeState = {
+      service: SERVICE_NAME,
+      version: VERSION,
+      workspaceId: workspace.id,
+      workspaceRoot: workspace.root,
+      pid: process.pid,
+      port,
+      adminToken,
+      publicUrl: publicBaseUrl,
+      startedAt,
+    };
+    writeRuntimeState(state);
+  };
+  const coreContext: BridgeCoreContext = {
+    app,
+    workspace,
+    host,
+    adminToken,
+    logger,
+    getPort: () => port,
+    getBaseUrl,
+    adminGuard,
+    getPublicBaseUrl: () => publicBaseUrl,
+    setPublicBaseUrl: (url: string | null) => {
+      publicBaseUrl = url;
+      persistRuntime();
+    },
+    startedAt,
+    persistRuntime,
+    tunnel,
+  };
+  opts.extendApp?.(coreContext);
+
+  const { server, port: actualPort } = await listen(app, host, port);
+  port = actualPort;
   persistRuntime();
-  async function shutdown(): Promise<void> { await tunnel.stop().catch(() => undefined); clearRuntimeState(workspace.id); await new Promise<void>((resolve) => server.close(() => resolve())); }
-  return { workspace, port, host, adminToken, authStore, pairing, tunnel, getPublicBaseUrl: () => publicBaseUrl, localBaseUrl: () => `http://${host}:${port}`, close: shutdown };
+  async function shutdown(): Promise<void> {
+    const stopped = await tunnel.stop().catch((error: unknown) => {
+      logger.error(`Tunnel stop failed during shutdown: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    });
+    if (stopped && !stopped.ok) {
+      logger.error(`Tunnel stop failed during shutdown: ${stopped.error.message}`);
+    }
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (opts.persistRuntime !== false && stopped?.ok) clearRuntimeState(workspace.id);
+  }
+  return { workspace, port, host, adminToken, tunnel, getPublicBaseUrl: () => publicBaseUrl, localBaseUrl: () => `http://${host}:${port}`, close: shutdown };
 }

@@ -1,11 +1,11 @@
 import { Command } from "commander";
-import { startBridge } from "../bridge/server.js";
+import { startBridge } from "../compat/legacy/bridge.js";
 import { findBridgeObservation, findLiveBridge } from "../bridge/runtime.js";
 import { adminFetch, ensureBridge, stopBridge } from "../process/daemon.js";
-import { AuthStore } from "../auth/store.js";
+import { AuthStore } from "../compat/legacy/auth/store.js";
 import { Workspace } from "../workspace/manager.js";
 import { Logger } from "../logger/index.js";
-import { isNamedTunnelReady, readTunnelState } from "../tunnel/state.js";
+import { isNamedTunnelReady, readTunnelState } from "../compat/legacy/cloudflare/state.js";
 import {
   readLastEndpoint,
   connectorNameFor,
@@ -41,6 +41,7 @@ export function registerBridgeCommands(program: Command): void {
         workspaceRoot: resolveWorkspace(opts.workspace),
         port: parseIntOrUndefined(opts.port),
         logger,
+        compatibilityMode: "legacy-cloudflare",
       });
       const shutdown = (): void => {
         void bridge.close().then(() => process.exit(0));

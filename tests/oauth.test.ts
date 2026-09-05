@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import path from "node:path";
-import { startBridge, type Bridge } from "../src/bridge/server.js";
+import { startBridge, type Bridge } from "../src/compat/legacy/bridge.js";
 import { makeTmpDir, cleanup, write, isolateStateDir, pkceVerifierAndChallenge } from "./helpers.js";
 
 let root: string;
@@ -18,6 +18,7 @@ beforeAll(async () => {
     port: 0,
     persistRuntime: false,
     authStoreFile: path.join(makeTmpDir("auth"), "store.json"),
+    compatibilityMode: "legacy-cloudflare",
   });
   base = bridge.localBaseUrl();
 });
@@ -110,6 +111,70 @@ describe("discovery metadata", () => {
 });
 
 describe("authorization + token flow", () => {
+  it("honors the injected access token ttl", async () => {
+    const ttlRoot = makeTmpDir("oauth-ttl");
+    write(ttlRoot, "hello.txt", "hello ttl\n");
+    const ttlBridge = await startBridge({
+      workspaceRoot: ttlRoot,
+      port: 0,
+      persistRuntime: false,
+      authStoreFile: path.join(makeTmpDir("auth-ttl"), "store.json"),
+      accessTokenTtlMs: 5_000,
+      compatibilityMode: "legacy-cloudflare",
+    });
+    try {
+      const ttlBase = ttlBridge.localBaseUrl();
+      const clientId = await (async () => {
+        const response = await fetch(`${ttlBase}/oauth/register`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ client_name: "TTL-Test", redirect_uris: [REDIRECT_URI] }),
+        });
+        expect(response.status).toBe(201);
+        const body = (await response.json()) as { client_id: string };
+        return body.client_id;
+      })();
+      const { verifier, challenge } = pkceVerifierAndChallenge();
+      const pairing = ttlBridge.pairing.create();
+      const authorizeUrl = new URL(`${ttlBase}/oauth/authorize`);
+      authorizeUrl.searchParams.set("client_id", clientId);
+      authorizeUrl.searchParams.set("redirect_uri", REDIRECT_URI);
+      authorizeUrl.searchParams.set("response_type", "code");
+      authorizeUrl.searchParams.set("code_challenge", challenge);
+      authorizeUrl.searchParams.set("code_challenge_method", "S256");
+
+      const pageResponse = await fetch(authorizeUrl, { redirect: "manual" });
+      const requestId = (await pageResponse.text()).match(/name="request_id" value="([a-f0-9]+)"/)?.[1];
+      expect(requestId).toBeTruthy();
+      const postResponse = await fetch(`${ttlBase}/oauth/authorize`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ request_id: requestId!, pairing_code: pairing.code }),
+        redirect: "manual",
+      });
+      const code = postResponse.headers.get("location") ? new URL(postResponse.headers.get("location")!).searchParams.get("code") : null;
+      expect(code).toBeTruthy();
+
+      const response = await fetch(`${ttlBase}/oauth/token`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code: code!,
+          code_verifier: verifier,
+          client_id: clientId,
+          redirect_uri: REDIRECT_URI,
+        }),
+      });
+      expect(response.status).toBe(200);
+      const token = (await response.json()) as Record<string, unknown>;
+      expect(token.expires_in).toBe(5);
+    } finally {
+      await ttlBridge.close();
+      cleanup(ttlRoot);
+    }
+  });
+
   it("completes the full pairing + PKCE flow and calls MCP", async () => {
     const clientId = await registerClient();
     const { verifier, challenge } = pkceVerifierAndChallenge();
@@ -160,6 +225,7 @@ describe("authorization + token flow", () => {
       port: 0,
       persistRuntime: false,
       authStoreFile: path.join(makeTmpDir("auth-html"), "store.json"),
+      compatibilityMode: "legacy-cloudflare",
     });
 
     try {

@@ -2,9 +2,9 @@ import { Command } from "commander";
 import { Workspace } from "../workspace/manager.js";
 import { stopBridge } from "../process/daemon.js";
 import { findLiveBridge } from "../bridge/runtime.js";
-import { chooseQuickTunnel, hasCloudflaredCert, ProcessCloudflaredAccount, provisionNamedTunnel } from "../tunnel/named-provision.js";
-import { parseZoneInput } from "../tunnel/hostname.js";
-import { NAMED_LOGIN_PROMPT, readTunnelState, TUNNEL_CHOICE_PROMPT } from "../tunnel/state.js";
+import { chooseQuickTunnel, hasCloudflaredCert, ProcessCloudflaredAccount, provisionNamedTunnel } from "../compat/legacy/cloudflare/named-provision.js";
+import { parseZoneInput } from "../compat/legacy/cloudflare/hostname.js";
+import { NAMED_LOGIN_PROMPT, readTunnelState, TUNNEL_CHOICE_PROMPT } from "../compat/legacy/cloudflare/state.js";
 import { check, cross, handleCliError, resolveWorkspace, say, tunnelChoicePayload } from "./shared.js";
 
 export function registerTunnelCommands(program: Command): void {

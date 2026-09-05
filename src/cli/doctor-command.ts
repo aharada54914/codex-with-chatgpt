@@ -3,8 +3,8 @@ import fs from "node:fs";
 import { findBridgeObservation, type RuntimeState } from "../bridge/runtime.js";
 import { adminFetch, ensureBridge, stopBridge } from "../process/daemon.js";
 import { Workspace } from "../workspace/manager.js";
-import { detectTunnelBinaries } from "../tunnel/detect.js";
-import { isNamedTunnelReady, NAMED_REPAIR_MESSAGE, readTunnelState } from "../tunnel/state.js";
+import { detectTunnelBinaries } from "../compat/legacy/cloudflare/detect.js";
+import { isNamedTunnelReady, NAMED_REPAIR_MESSAGE, readTunnelState } from "../compat/legacy/cloudflare/state.js";
 import { getStateDir } from "../config/paths.js";
 import { getCodexConfigPath, isStateDirAllowlisted } from "../config/sandbox-allow.js";
 import {
@@ -321,4 +321,3 @@ export function registerDoctorCommand(program: Command): void {
     if (!allOk || namedRepair.needed) process.exitCode = 1;
   });
 }
-

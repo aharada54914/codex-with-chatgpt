@@ -454,12 +454,102 @@ ID                                   NAME          CREATED
 });
 
 describe("bridge transport seam", () => {
-  it("routes Cloudflare selection through a dedicated transport factory", () => {
+  it("keeps core bridge free of compat imports", () => {
     const source = fs.readFileSync(path.resolve("src/bridge/server.ts"), "utf8");
-    expect(source).toContain('from "../tunnel/cloudflare-provider.js"');
-    expect(source).not.toContain('from "../tunnel/cloudflared.js"');
-    expect(source).not.toContain('from "../tunnel/cloudflared-named.js"');
+    expect(source).toContain('from "./core.js"');
+    expect(source).not.toContain("../compat/");
+  });
+
+  it("keeps core implementation free of compat imports", () => {
+    const source = fs.readFileSync(path.resolve("src/bridge/core.ts"), "utf8");
+    expect(source).not.toContain("../compat/");
+    expect(source).not.toContain("/oauth");
+    expect(source).not.toContain("/mcp");
+    expect(source).not.toContain("/admin/info");
+    expect(source).not.toContain("/admin/pairing");
+    expect(source).not.toContain("/admin/revoke-all");
+  });
+
+  it("keeps legacy root facades as backward-compatible re-exports", () => {
+    const facades: Array<[string, string]> = [
+      ["src/auth/html.ts", 'from "../compat/legacy/auth/html.js"'],
+      ["src/auth/middleware.ts", 'from "../compat/legacy/auth/middleware.js"'],
+      ["src/auth/oauth.ts", 'from "../compat/legacy/auth/oauth.js"'],
+      ["src/auth/store.ts", 'from "../compat/legacy/auth/store.js"'],
+      ["src/pairing/manager.ts", 'from "../compat/legacy/pairing/manager.js"'],
+      ["src/tunnel/cloudflared.ts", 'from "../compat/legacy/cloudflare/cloudflared.js"'],
+      ["src/tunnel/cloudflared-named.ts", 'from "../compat/legacy/cloudflare/cloudflared-named.js"'],
+      ["src/tunnel/detect.ts", 'from "../compat/legacy/cloudflare/detect.js"'],
+      ["src/tunnel/factory.ts", 'from "../compat/legacy/cloudflare/factory.js"'],
+      ["src/tunnel/hostname.ts", 'from "../compat/legacy/cloudflare/hostname.js"'],
+      ["src/tunnel/named-provision.ts", 'from "../compat/legacy/cloudflare/named-provision.js"'],
+      ["src/tunnel/state.ts", 'from "../compat/legacy/cloudflare/state.js"'],
+      ["src/tunnel/cloudflare-provider.ts", 'from "../compat/legacy/cloudflare/provider.js"'],
+    ];
+    for (const [file, needle] of facades) {
+      expect(fs.readFileSync(path.resolve(file), "utf8")).toContain(needle);
+    }
+  });
+
+  it("keeps Cloudflare-specific implementation under compat and the generic provider core-only", () => {
+    expect(fs.readFileSync(path.resolve("src/compat/legacy/cloudflare/provider.ts"), "utf8")).toContain(
+      "createWorkspaceTunnelProvider"
+    );
+    expect(fs.readFileSync(path.resolve("src/compat/legacy/cloudflare/provider.ts"), "utf8")).not.toContain(
+      "export *"
+    );
+    expect(fs.readFileSync(path.resolve("src/compat/legacy/cloudflare/factory.ts"), "utf8")).toContain(
+      'from "../../../tunnel/provider.js"'
+    );
+    expect(fs.readFileSync(path.resolve("src/tunnel/provider.ts"), "utf8")).not.toContain("../compat/");
+  });
+
+  it("routes the V1 wiring through the compatibility bridge", () => {
+    const source = fs.readFileSync(path.resolve("src/compat/legacy/bridge.ts"), "utf8");
+    expect(source).toContain('from "./auth/store.js"');
+    expect(source).toContain('from "./auth/oauth.js"');
+    expect(source).toContain('from "./auth/middleware.js"');
+    expect(source).toContain('from "./pairing/manager.js"');
+    expect(source).toContain('from "./cloudflare/provider.js"');
+    expect(source).not.toContain('from "../../auth/');
+    expect(source).not.toContain('from "../../pairing/');
+    expect(source).not.toContain('from "../../tunnel/cloudflare-provider.js"');
+    expect(source).not.toContain('from "../../tunnel/cloudflared');
     expect(createCloudflareTransportProvider).toBeTypeOf("function");
+  });
+
+  it("imports compat Cloudflare helpers directly from the CLI layer", () => {
+    const cliFiles: Array<[string, string[]]> = [
+      [
+        "src/cli/tunnel-commands.ts",
+        [
+          "../compat/legacy/cloudflare/named-provision.js",
+          "../compat/legacy/cloudflare/hostname.js",
+          "../compat/legacy/cloudflare/state.js",
+        ],
+      ],
+      [
+        "src/cli/shared.ts",
+        [
+          "../compat/legacy/cloudflare/detect.js",
+          "../compat/legacy/cloudflare/named-provision.js",
+          "../compat/legacy/cloudflare/hostname.js",
+          "../compat/legacy/cloudflare/state.js",
+        ],
+      ],
+      [
+        "src/cli/doctor-command.ts",
+        ["../compat/legacy/cloudflare/detect.js", "../compat/legacy/cloudflare/state.js"],
+      ],
+      [
+        "src/cli/bridge-commands.ts",
+        ["../compat/legacy/auth/store.js", "../compat/legacy/cloudflare/state.js"],
+      ],
+    ];
+    for (const [file, imports] of cliFiles) {
+      const source = fs.readFileSync(path.resolve(file), "utf8");
+      for (const needle of imports) expect(source).toContain(needle);
+    }
   });
 });
 

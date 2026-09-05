@@ -4,16 +4,16 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { adminFetch, ensureBridge } from "../process/daemon.js";
-import { detectTunnelBinaries } from "../tunnel/detect.js";
-import { hasCloudflaredCert } from "../tunnel/named-provision.js";
-import { parseZoneInput, suggestedNamedHostname } from "../tunnel/hostname.js";
+import { detectTunnelBinaries } from "../compat/legacy/cloudflare/detect.js";
+import { hasCloudflaredCert } from "../compat/legacy/cloudflare/named-provision.js";
+import { parseZoneInput, suggestedNamedHostname } from "../compat/legacy/cloudflare/hostname.js";
 import {
   isNamedTunnelReady,
   NAMED_LOGIN_PROMPT,
   needsTunnelChoice,
   readTunnelState,
   TUNNEL_CHOICE_PROMPT,
-} from "../tunnel/state.js";
+} from "../compat/legacy/cloudflare/state.js";
 import { Workspace } from "../workspace/manager.js";
 import { connectorNameFor, readLastEndpoint, writeLastEndpoint, type LastEndpoint } from "../config/endpoint.js";
 import { ensureSandboxAllowlist } from "../config/sandbox-allow.js";
