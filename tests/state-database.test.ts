@@ -14,7 +14,7 @@ afterEach(() => { while (directories.length) cleanup(directories.pop()!); });
 
 function activity(id: string, projectId = "project-1"): Activity {
   const timestamp = "2026-09-05T00:00:00.000Z";
-  return { id, projectId, revision: 0, createdAt: timestamp, updatedAt: timestamp, goal: "ship safely", status: "planned" };
+  return { id, projectId, revision: 0, createdAt: timestamp, updatedAt: timestamp, goal: "ship safely", status: "INTAKE" };
 }
 
 describe("durable state database", () => {

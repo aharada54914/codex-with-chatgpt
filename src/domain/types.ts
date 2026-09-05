@@ -16,14 +16,32 @@ export interface Project extends DomainRecord {
   rootFingerprint: string;
   filesystemIdentity: string;
 }
-export interface Activity extends DomainRecord { goal: string; status: string; }
+export type ActivityStatus =
+  | "INTAKE" | "PLANNING" | "READY" | "DISPATCHED" | "EXECUTING"
+  | "VERIFYING" | "REVIEWING" | "FIX_REQUIRED"
+  | "DONE" | "BLOCKED" | "CANCELLED" | "FAILED" | "RECOVERY_REQUIRED";
+
+export interface Activity extends DomainRecord { goal: string; status: ActivityStatus; }
 export interface Agent extends DomainRecord { activityId: string; role: "implementer" | "reviewer"; threadId: string | null; }
 export interface Job extends DomainRecord { activityId: string; kind: string; status: string; }
 export interface Approval extends DomainRecord { activityId: string; capability: string; status: string; expiresAt: IsoTimestamp | null; }
 export interface Evidence extends DomainRecord { activityId: string; kind: string; repositoryRevision: string; status: string; }
 export interface Review extends DomainRecord { activityId: string; reviewerAgentId: string; decision: string; }
-export interface Operation extends DomainRecord { activityId: string; idempotencyKey: string; status: string; }
-export interface AuditEvent extends DomainRecord { activityId: string | null; eventType: string; actor: string; }
+export interface Operation extends DomainRecord {
+  activityId: string;
+  idempotencyKey: string;
+  operationType: string;
+  requestFingerprint: string;
+  status: "COMPLETED";
+  resultActivity: Activity;
+}
+export interface AuditEvent extends DomainRecord {
+  activityId: string | null;
+  eventType: string;
+  actor: string;
+  fromRevision: number;
+  toRevision: number;
+}
 
 export type DomainRecordByKind = {
   projects: Project;

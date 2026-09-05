@@ -15,6 +15,7 @@ export interface Repository<T extends DomainRecord> {
   get(id: string): T | null;
   listByProject(projectId: string | null): T[];
   update(record: T): boolean;
+  updateExpected(record: T, expectedRevision: number): boolean;
   delete(id: string): boolean;
 }
 
@@ -62,6 +63,14 @@ export class SqliteRepository<K extends DomainKind> implements Repository<Domain
     return result.changes === 1;
   }
 
+  updateExpected(record: DomainRecordByKind[K], expectedRevision: number): boolean {
+    const result = this.database.prepare(`UPDATE ${this.table}
+      SET project_id = ?, revision = ?, payload_json = ?, updated_at = ?
+      WHERE id = ? AND revision = ?`)
+      .run(record.projectId, record.revision, JSON.stringify(record), record.updatedAt, record.id, expectedRevision);
+    return result.changes === 1;
+  }
+
   delete(id: string): boolean {
     return this.database.prepare(`DELETE FROM ${this.table} WHERE id = ?`).run(id).changes === 1;
   }
@@ -91,6 +100,14 @@ export class DomainRepositories {
   }
 
   transaction<T>(operation: () => T): T {
-    return this.database.transaction(operation)();
+    // Acquire the write reservation before any revision read. This prevents a
+    // deferred WAL snapshot from failing later with SQLITE_BUSY_SNAPSHOT.
+    return this.database.transaction(operation).immediate();
+  }
+
+  findOperationByIdempotencyKey(idempotencyKey: string): DomainRecordByKind["operations"] | null {
+    const row = this.database.prepare(`SELECT * FROM operations
+      WHERE json_extract(payload_json, '$.idempotencyKey') = ?`).get(idempotencyKey) as StoredRow | undefined;
+    return row ? hydrate<DomainRecordByKind["operations"]>(row) : null;
   }
 }
