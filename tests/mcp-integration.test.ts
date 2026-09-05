@@ -4,8 +4,8 @@ import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { startBridge, type Bridge } from "../src/compat/legacy/bridge.js";
-import { appendExecutionRecord } from "../src/execution/records.js";
-import { saveExecutionOutput } from "../src/execution/output.js";
+import { appendExecutionRecord } from "../src/compat/legacy/execution/records.js";
+import { saveExecutionOutput } from "../src/compat/legacy/execution/output.js";
 import { makeTmpDir, cleanup, write, makeGitRepo, git, isolateStateDir } from "./helpers.js";
 
 let root: string;

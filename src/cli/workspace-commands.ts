@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { Workspace } from "../workspace/manager.js";
 import { getStateDir } from "../config/paths.js";
-import { isStateDirAllowlisted } from "../config/sandbox-allow.js";
+import { isStateDirAllowlisted } from "../compat/legacy/state/sandbox-allow.js";
 import { VERSION } from "../version.js";
 import { check, cross, handleCliError, resolveWorkspace, runGit, say, trySandboxAllow } from "./shared.js";
 

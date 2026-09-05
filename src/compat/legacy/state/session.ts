@@ -1,6 +1,6 @@
 import path from "node:path";
 import fs from "node:fs";
-import { getStateDir, readJsonIfExists, writeSecureJson } from "../config/paths.js";
+import { getStateDir, readJsonIfExists, writeSecureJson } from "../../../config/paths.js";
 
 export type ConversationMode = "long-chat" | "project";
 

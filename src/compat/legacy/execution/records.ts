@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
-import { ensureDir, getStateDir } from "../config/paths.js";
+import { ensureDir, getStateDir } from "../../../config/paths.js";
 
 /**
  * Lightweight execution records written by the Codex harness after each

@@ -1,5 +1,5 @@
 import path from "node:path";
-import { getStateDir, readJsonIfExists, writeSecureJson } from "./paths.js";
+import { getStateDir, readJsonIfExists, writeSecureJson } from "../../../config/paths.js";
 
 export type SetupMode = "auto" | "manual";
 

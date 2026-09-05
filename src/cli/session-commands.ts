@@ -1,6 +1,6 @@
 import { Command } from "commander";
-import { appendExecutionRecord } from "../execution/records.js";
-import { saveExecutionOutput } from "../execution/output.js";
+import { appendExecutionRecord } from "../compat/legacy/execution/records.js";
+import { saveExecutionOutput } from "../compat/legacy/execution/output.js";
 import {
   clearChatPointer,
   mergeSession,
@@ -12,8 +12,8 @@ import {
   type ConversationMode,
   type ProtocolState,
   type WaitingFor,
-} from "../session/state.js";
-import { mergeUiPrefs, readUiPrefs, SETUP_MODES, type SetupMode } from "../config/ui-prefs.js";
+} from "../compat/legacy/state/session.js";
+import { mergeUiPrefs, readUiPrefs, SETUP_MODES, type SetupMode } from "../compat/legacy/state/ui-prefs.js";
 import { Workspace } from "../workspace/manager.js";
 import {
   check,

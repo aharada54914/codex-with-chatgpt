@@ -4,18 +4,18 @@ import fs from "node:fs";
 import path from "node:path";
 import type { ChildProcess } from "node:child_process";
 import { PassThrough } from "node:stream";
-import { findBinary } from "../src/tunnel/detect.js";
-import { createCloudflareTransportProvider } from "../src/tunnel/cloudflare-provider.js";
+import { findBinary } from "../src/compat/legacy/cloudflare/detect.js";
+import { createCloudflareTransportProvider } from "../src/compat/legacy/cloudflare/provider.js";
 import {
   CloudflaredQuickTunnel,
   parseQuickTunnelUrl,
   type CloudflaredQuickTunnelOptions,
-} from "../src/tunnel/cloudflared.js";
+} from "../src/compat/legacy/cloudflare/cloudflared.js";
 import {
   CloudflaredNamedTunnel,
   normalizeNamedTunnelHostname,
-} from "../src/tunnel/cloudflared-named.js";
-import { hostnameSlug, parseZoneInput, suggestedNamedHostname } from "../src/tunnel/hostname.js";
+} from "../src/compat/legacy/cloudflare/cloudflared-named.js";
+import { hostnameSlug, parseZoneInput, suggestedNamedHostname } from "../src/compat/legacy/cloudflare/hostname.js";
 import {
   chooseQuickTunnel,
   isBenignRouteError,
@@ -23,8 +23,8 @@ import {
   parseTunnelList,
   provisionNamedTunnel,
   type CloudflaredAccount,
-} from "../src/tunnel/named-provision.js";
-import { isNamedTunnelReady, needsTunnelChoice, readTunnelState } from "../src/tunnel/state.js";
+} from "../src/compat/legacy/cloudflare/named-provision.js";
+import { isNamedTunnelReady, needsTunnelChoice, readTunnelState } from "../src/compat/legacy/cloudflare/state.js";
 import { cleanup, isolateStateDir, makeTmpDir, write } from "./helpers.js";
 
 const stateDirs: string[] = [];
@@ -470,24 +470,10 @@ describe("bridge transport seam", () => {
     expect(source).not.toContain("/admin/revoke-all");
   });
 
-  it("keeps legacy root facades as backward-compatible re-exports", () => {
-    const facades: Array<[string, string]> = [
-      ["src/auth/html.ts", 'from "../compat/legacy/auth/html.js"'],
-      ["src/auth/middleware.ts", 'from "../compat/legacy/auth/middleware.js"'],
-      ["src/auth/oauth.ts", 'from "../compat/legacy/auth/oauth.js"'],
-      ["src/auth/store.ts", 'from "../compat/legacy/auth/store.js"'],
-      ["src/pairing/manager.ts", 'from "../compat/legacy/pairing/manager.js"'],
-      ["src/tunnel/cloudflared.ts", 'from "../compat/legacy/cloudflare/cloudflared.js"'],
-      ["src/tunnel/cloudflared-named.ts", 'from "../compat/legacy/cloudflare/cloudflared-named.js"'],
-      ["src/tunnel/detect.ts", 'from "../compat/legacy/cloudflare/detect.js"'],
-      ["src/tunnel/hostname.ts", 'from "../compat/legacy/cloudflare/hostname.js"'],
-      ["src/tunnel/named-provision.ts", 'from "../compat/legacy/cloudflare/named-provision.js"'],
-      ["src/tunnel/state.ts", 'from "../compat/legacy/cloudflare/state.js"'],
-      ["src/tunnel/cloudflare-provider.ts", 'from "../compat/legacy/cloudflare/provider.js"'],
-    ];
-    for (const [file, needle] of facades) {
-      expect(fs.readFileSync(path.resolve(file), "utf8")).toContain(needle);
-    }
+  it("removes legacy root facades after callers migrate to the explicit compatibility package", () => {
+    for (const file of ["src/auth", "src/pairing", "src/tunnel/cloudflared.ts", "src/tunnel/cloudflared-named.ts",
+      "src/tunnel/detect.ts", "src/tunnel/hostname.ts", "src/tunnel/named-provision.ts", "src/tunnel/state.ts",
+      "src/tunnel/cloudflare-provider.ts"]) expect(fs.existsSync(path.resolve(file))).toBe(false);
   });
 
   it("keeps Cloudflare-specific implementation under compat and the generic provider core-only", () => {

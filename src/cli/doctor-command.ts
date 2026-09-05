@@ -6,7 +6,7 @@ import { Workspace } from "../workspace/manager.js";
 import { detectTunnelBinaries } from "../compat/legacy/cloudflare/detect.js";
 import { isNamedTunnelReady, NAMED_REPAIR_MESSAGE, readTunnelState } from "../compat/legacy/cloudflare/state.js";
 import { getStateDir } from "../config/paths.js";
-import { getCodexConfigPath, isStateDirAllowlisted } from "../config/sandbox-allow.js";
+import { getCodexConfigPath, isStateDirAllowlisted } from "../compat/legacy/state/sandbox-allow.js";
 import {
   CHATGPT_CREATE_CONNECTOR_URL,
   CHATGPT_DEVELOPER_MODE_URL,

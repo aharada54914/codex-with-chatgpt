@@ -7,7 +7,7 @@ import {
   readSession,
   resolveConversation,
   writeSession,
-} from "../src/session/state.js";
+} from "../src/compat/legacy/state/session.js";
 import { cleanup, makeTmpDir } from "./helpers.js";
 
 const PROJECT = "https://chatgpt.com/g/g-p-6a94399430e08191860ab5364b7748b8/project";

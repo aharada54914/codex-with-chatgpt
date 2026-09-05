@@ -2,7 +2,7 @@ import path from "node:path";
 import express from "express";
 import { Workspace } from "../../workspace/manager.js";
 import { nullLogger, type Logger } from "../../logger/index.js";
-import { createMcpServer } from "../../mcp/server.js";
+import { createMcpServer } from "./mcp/server.js";
 import { createMcpHttpHandler } from "../../mcp/http.js";
 import { startBridge as startBridgeCore, type Bridge as CoreBridge, type BridgeCoreContext } from "../../bridge/core.js";
 import type { TunnelProvider } from "../../tunnel/provider.js";

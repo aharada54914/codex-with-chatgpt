@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import { ensureDir, getStateDir, readJsonIfExists, writeSecureJson } from "../config/paths.js";
-import { redact } from "../logger/index.js";
-import { sanitizeExecutionOutput } from "./sanitize.js";
+import { ensureDir, getStateDir, readJsonIfExists, writeSecureJson } from "../../../config/paths.js";
+import { redact } from "../../../logger/index.js";
+import { sanitizeExecutionOutput } from "../../../execution/sanitize.js";
 
 export const MAX_OUTPUT_RECORDS = 40;
 

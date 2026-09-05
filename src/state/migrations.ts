@@ -114,6 +114,36 @@ export const migrations: readonly Migration[] = [
         WHERE json_type(payload_json, '$.sideEffectKey') = 'text'`);
     },
   },
+  {
+    version: 7,
+    name: "legacy-metadata-imports",
+    apply(database) {
+      database.exec(`
+        CREATE TABLE legacy_import_batches (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL,
+          workspace_id TEXT NOT NULL,
+          source_fingerprint TEXT NOT NULL,
+          backup_path TEXT NOT NULL,
+          imported_at TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX legacy_import_batches_source_unique
+          ON legacy_import_batches(project_id, workspace_id, source_fingerprint);
+        CREATE TABLE legacy_metadata (
+          source_key TEXT NOT NULL,
+          batch_id TEXT NOT NULL REFERENCES legacy_import_batches(id) ON DELETE CASCADE,
+          project_id TEXT NOT NULL,
+          workspace_id TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          source_fingerprint TEXT NOT NULL,
+          payload_json TEXT NOT NULL,
+          imported_at TEXT NOT NULL,
+          PRIMARY KEY (project_id, source_key)
+        );
+        CREATE INDEX legacy_metadata_project_idx ON legacy_metadata(project_id);
+      `);
+    },
+  },
 ];
 
 export function migrate(database: Database.Database): void {

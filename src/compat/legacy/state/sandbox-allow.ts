@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { getStateDir } from "./paths.js";
+import { getStateDir } from "../../../config/paths.js";
 
 const TABLE = "sandbox_workspace_write";
 const KEY = "writable_roots";

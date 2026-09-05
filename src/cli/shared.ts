@@ -16,7 +16,7 @@ import {
 } from "../compat/legacy/cloudflare/state.js";
 import { Workspace } from "../workspace/manager.js";
 import { connectorNameFor, readLastEndpoint, writeLastEndpoint, type LastEndpoint } from "../config/endpoint.js";
-import { ensureSandboxAllowlist } from "../config/sandbox-allow.js";
+import { ensureSandboxAllowlist } from "../compat/legacy/state/sandbox-allow.js";
 
 export interface TunnelStartResponse {
   url?: string;
