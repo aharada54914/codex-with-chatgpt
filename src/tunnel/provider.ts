@@ -38,6 +38,7 @@ export type TunnelErrorCode =
   | "doctor_failed"
   | "version_probe_failed"
   | "init_failed"
+  | "readiness_not_configured"
   | "client_incompatible"
   | "interrupted";
 
