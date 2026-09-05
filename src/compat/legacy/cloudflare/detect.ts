@@ -1,16 +1,6 @@
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { findBinary as findGenericBinary } from "../../../core/binary.js";
-
-const COMMON_DIRS = [
-  "/opt/homebrew/bin",
-  "/usr/local/bin",
-  "/usr/bin",
-  path.join(process.env.HOME ?? "", ".local", "bin"),
-  "C:\\Program Files\\cloudflared",
-  "C:\\Program Files (x86)\\cloudflared",
-];
 
 function accessibleFile(candidate: string): string | null {
   try {
@@ -27,12 +17,11 @@ export function findBinary(name: string): string | null {
   if (name !== "cloudflared") {
     return findGenericBinary(name);
   }
-  const exe = process.platform === "win32" ? `${name}.exe` : name;
   if (name === "cloudflared" && process.env.C2C_CLOUDFLARED_PATH?.trim()) {
     const configured = accessibleFile(process.env.C2C_CLOUDFLARED_PATH.trim());
     if (configured) return configured;
   }
-  return findGenericBinary(name) ?? ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", path.join(process.env.HOME ?? "", ".local", "bin"), "C:\\Program Files\\cloudflared", "C:\\Program Files (x86)\\cloudflared"].map((dir) => accessibleFile(path.join(dir, exe))).find((value): value is string => Boolean(value)) ?? null;
+  return findGenericBinary(name);
 }
 
 export interface TunnelBinaries {

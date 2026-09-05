@@ -13,7 +13,6 @@ const DEFAULT_READINESS_POLL_INTERVAL_MS = 100;
 const MAX_CAPTURE_CHARS = 6_000;
 const MAX_DETAIL_CHARS = 8_000;
 const SECRET_ENV_NAME = "CONTROL_PLANE_API_KEY";
-const READY_LINE = /^\s*SECURE_MCP_READY\s*$/i;
 const INCOMPATIBLE_LINE = /\b(incompatible|unsupported|version mismatch|upgrade required|requires .* version)\b/i;
 const VERSION_LINE = /\b(?:version|v)\s*(\d+(?:\.\d+){1,2}(?:[-+][\w.-]+)?)\b/i;
 const MIN_COMPATIBLE_VERSION = { major: 2, minor: 0, patch: 0 };
@@ -23,6 +22,7 @@ export type SecureMcpErrorCode =
   | "entitlement_missing"
   | "profile_not_configured"
   | "command_not_configured"
+  | "readiness_not_configured"
   | "doctor_failed"
   | "version_probe_failed"
   | "init_failed";
@@ -184,10 +184,6 @@ function containsIncompatibleMarker(text: string): boolean {
   return INCOMPATIBLE_LINE.test(text);
 }
 
-function isReadyMarker(text: string): boolean {
-  return READY_LINE.test(text);
-}
-
 export class SecureMcpTunnelClient implements TunnelProvider {
   readonly name = "secure-mcp";
 
@@ -261,7 +257,11 @@ export class SecureMcpTunnelClient implements TunnelProvider {
     this.lastVersion = versionProbe.version ?? this.lastVersion;
     const problems: string[] = [];
     const errors: SecureMcpError[] = [];
-    const prereqs = this.prerequisiteErrors();
+    const readinessError = this.readinessConfigurationError();
+    const prereqs = [
+      ...this.prerequisiteErrors(),
+      ...(readinessError ? [readinessError] : []),
+    ];
 
     if (!binaryPath) {
       const detail = this.buildDetail("tunnel-client is not installed");
@@ -412,6 +412,8 @@ export class SecureMcpTunnelClient implements TunnelProvider {
     }
     const prereqs = this.prerequisiteErrors();
     if (prereqs.length) return { ok: false, provider: this.name, error: prereqs[0] };
+    const readinessError = this.readinessConfigurationError();
+    if (readinessError) return { ok: false, provider: this.name, error: readinessError };
 
     if (this.child && this.lifecycle === "running") {
       return { ok: true, provider: this.name, url: this.publicUrl, pid: this.child.pid ?? null, detail: this.lastDetail ?? undefined };
@@ -542,20 +544,31 @@ export class SecureMcpTunnelClient implements TunnelProvider {
       } catch {
         // ignore; interruption should still resolve as interrupted
       }
-      this.child = null;
-      this.lifecycle = "stopped";
+      this.lastDetail = this.buildDetail("Secure MCP tunnel start interrupted");
       return { ok: false, provider: this.name, error: secureMcpError("interrupted", "Secure MCP tunnel start interrupted") };
     }
 
     return await new Promise<SecureMcpRunOutcome>((resolve) => {
       let settled = false;
-      let started = false;
       let timeout: ReturnType<typeof setTimeout> | null = null;
       let readinessTimer: ReturnType<typeof setInterval> | null = null;
       let stdout = "";
       let stderr = "";
       let readinessInFlight = false;
       const readyAbort = new AbortController();
+      const trackChildExit = (detail: string): void => {
+        if (this.child !== child) return;
+        this.child = null;
+        this.publicUrl = null;
+        this.lifecycle = "stopped";
+        this.lastDetail = detail;
+      };
+      const cleanup = (): void => {
+        if (timeout) clearTimeout(timeout);
+        if (readinessTimer) clearInterval(readinessTimer);
+        readyAbort.abort();
+        signal.removeEventListener("abort", onAbort);
+      };
       const onAbort = (): void => {
         if (settled) return;
         if (this.child === child) {
@@ -580,57 +593,34 @@ export class SecureMcpTunnelClient implements TunnelProvider {
       const finish = (result: SecureMcpRunOutcome): void => {
         if (settled) return;
         settled = true;
-        if (timeout) clearTimeout(timeout);
-        if (readinessTimer) clearInterval(readinessTimer);
+        cleanup();
         stdoutReader?.close();
         stderrReader?.close();
-        readyAbort.abort();
-        signal.removeEventListener("abort", onAbort);
         resolve(result);
-      };
-
-      const setFailedState = (message: string, detail?: string): void => {
-        this.lastDetail = detail ?? message;
-        this.lifecycle = "stopped";
-        this.child = null;
-        this.publicUrl = null;
       };
 
       const fail = (error: SecureMcpError, attemptStop = true): void => {
         if (settled) return;
-        let stopped = true;
+        this.lastDetail = this.buildDetail(error.detail ?? error.message);
+        this.lifecycle = this.child === child ? "starting" : this.lifecycle;
+        let stopRequested = false;
         if (attemptStop && this.child === child) {
           try {
-            stopped = child.kill("SIGTERM");
+            stopRequested = child.kill("SIGTERM");
           } catch {
-            stopped = false;
+            stopRequested = false;
           }
         }
-        if (!stopped) {
-          this.lifecycle = this.child === child ? "starting" : this.lifecycle;
-          this.lastDetail = this.lastDetail ?? "secure MCP tunnel refused SIGTERM";
-          finish({
-            ok: false,
-            provider: this.name,
-            error: secureMcpError("stop_failed", "secure MCP tunnel refused SIGTERM", this.lastDetail),
-          });
-          return;
-        }
-        if (attemptStop && this.child === child) {
-          this.lifecycle = "starting";
-          this.lastDetail = error.detail ?? error.message;
+        if (attemptStop && this.child === child && stopRequested) {
           void this.waitForExit(child, this.stopTimeoutMs).then((exited) => {
-            if (exited) setFailedState(error.message, error.detail);
+            if (exited) trackChildExit(this.buildDetail(summarizeOutput(stdout, stderr, null, null)));
           });
-        } else {
-          setFailedState(error.message, error.detail);
         }
         finish({ ok: false, provider: this.name, error });
       };
 
       const succeed = (result: SecureMcpRunResult): void => {
         if (settled) return;
-        started = true;
         this.lifecycle = "running";
         this.publicUrl = result.url;
         this.lastDetail = result.detail ?? this.lastDetail;
@@ -662,8 +652,6 @@ export class SecureMcpTunnelClient implements TunnelProvider {
               pid: this.child?.pid ?? null,
               detail: this.lastDetail ?? undefined,
             });
-          } else if (readiness.detail) {
-            this.lastDetail = this.buildDetail(readiness.detail);
           }
         } catch (error) {
           if (!settled) {
@@ -686,12 +674,6 @@ export class SecureMcpTunnelClient implements TunnelProvider {
         }
         const version = extractVersion(normalized);
         if (version) this.lastVersion = version;
-        if (isReadyMarker(normalized)) {
-          void probeReady();
-        }
-        if (/\b(err|error|failed|fatal)\b/i.test(normalized)) {
-          this.lastDetail = this.buildDetail(normalized);
-        }
       };
 
       stdoutReader?.on("line", onLine);
@@ -702,21 +684,17 @@ export class SecureMcpTunnelClient implements TunnelProvider {
         fail(secureMcpError("start_timeout", "secure MCP tunnel did not become ready in time", this.buildDetail("start timed out")));
       }, this.startTimeoutMs);
 
-      readinessTimer = setInterval(() => {
+      if (this.readinessProbeImpl || this.readinessUrl) {
         void probeReady();
-      }, DEFAULT_READINESS_POLL_INTERVAL_MS);
+        readinessTimer = setInterval(() => {
+          void probeReady();
+        }, DEFAULT_READINESS_POLL_INTERVAL_MS);
+      }
 
       child.once("error", (error) => {
-        if (settled && started) {
-          this.lifecycle = "stopped";
-          this.child = null;
-          this.publicUrl = null;
-          this.lastDetail = error instanceof Error ? error.message : String(error);
-          return;
-        }
+        const detail = this.buildDetail(error instanceof Error ? error.message : String(error));
+        trackChildExit(detail);
         if (settled) return;
-        const detail = error instanceof Error ? error.message : String(error);
-        setFailedState("tunnel-client run could not start", detail);
         finish({
           ok: false,
           provider: this.name,
@@ -725,19 +703,9 @@ export class SecureMcpTunnelClient implements TunnelProvider {
       });
 
       child.once("exit", (code, childSignal) => {
-        if (settled && started) {
-          this.lifecycle = "stopped";
-          this.child = null;
-          this.publicUrl = null;
-          this.lastDetail = this.buildDetail(summarizeOutput(stdout, stderr, code, childSignal));
-          return;
-        }
-        if (settled) return;
         const detail = this.buildDetail(summarizeOutput(stdout, stderr, code, childSignal));
-        this.lastDetail = detail;
-        this.lifecycle = "stopped";
-        this.child = null;
-        this.publicUrl = null;
+        trackChildExit(detail);
+        if (settled) return;
         if (signal.aborted) {
           finish({
             ok: false,
@@ -827,15 +795,18 @@ export class SecureMcpTunnelClient implements TunnelProvider {
       const probeUrl = new URL(this.readinessUrl);
       const response = await this.fetchImpl(probeUrl, { method: "GET", signal: context.signal });
       const body = await response.text().catch(() => "");
-      const ok = response.ok && /(?:^|\b)(?:ok|ready|readyz|healthy)(?:\b|$)/i.test(body);
+      const ok = response.ok;
       return {
         ready: ok,
         detail: body || `${response.status} ${response.statusText}`,
         url: this.publicUrl,
       };
     }
-    const ready = isReadyMarker(context.output) && !/\bnot\s+ready\b/i.test(context.output);
-    return { ready, detail: context.detail ?? undefined, url: this.publicUrl };
+    return {
+      ready: false,
+      detail: context.detail ?? "readiness probe is not configured",
+      url: this.publicUrl,
+    };
   }
 
   private binary(): string | null {
@@ -843,7 +814,11 @@ export class SecureMcpTunnelClient implements TunnelProvider {
   }
 
   private isConfigured(): boolean {
-    return this.profile !== null && this.tunnelId !== null && this.mcpCommand !== null && this.hasControlPlaneEntitlement();
+    return this.profile !== null
+      && this.tunnelId !== null
+      && this.mcpCommand !== null
+      && this.hasControlPlaneEntitlement()
+      && this.readinessConfigurationError() === null;
   }
 
   private hasControlPlaneEntitlement(): boolean {
@@ -859,6 +834,11 @@ export class SecureMcpTunnelClient implements TunnelProvider {
       errors.push(secureMcpError("entitlement_missing", `${SECRET_ENV_NAME} is not configured`));
     }
     return errors;
+  }
+
+  private readinessConfigurationError(): SecureMcpError | null {
+    if (this.readinessProbeImpl || this.readinessUrl) return null;
+    return secureMcpError("readiness_not_configured", "readiness probe or URL is not configured");
   }
 
   private async captureCommand(command: string, args: string[], timeoutMs = this.commandTimeoutMs): Promise<SpawnCapture> {
