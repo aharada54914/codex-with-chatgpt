@@ -78,6 +78,19 @@ export const migrations: readonly Migration[] = [
       }
     },
   },
+  {
+    version: 4,
+    name: "unique-review-attempts",
+    apply(database) {
+      database.exec(`CREATE UNIQUE INDEX agents_reviewer_attempt_unique
+        ON agents(
+          json_extract(payload_json, '$.activityId'),
+          json_extract(payload_json, '$.attempt')
+        )
+        WHERE json_extract(payload_json, '$.role') = 'reviewer'
+          AND json_type(payload_json, '$.attempt') = 'integer'`);
+    },
+  },
 ];
 
 export function migrate(database: Database.Database): void {

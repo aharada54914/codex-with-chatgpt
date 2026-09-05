@@ -22,11 +22,21 @@ export type ActivityStatus =
   | "DONE" | "BLOCKED" | "CANCELLED" | "FAILED" | "RECOVERY_REQUIRED";
 
 export interface Activity extends DomainRecord { goal: string; status: ActivityStatus; }
-export interface Agent extends DomainRecord { activityId: string; role: "implementer" | "reviewer"; threadId: string | null; }
+export interface Agent extends DomainRecord {
+  activityId: string;
+  role: "implementer" | "reviewer";
+  threadId: string | null;
+  worktreeId?: string | null;
+  attempt?: number;
+  status?: "RUNNING" | "COMPLETED" | "FAILED";
+}
 export interface Job extends DomainRecord { activityId: string; kind: string; status: string; }
 export interface Approval extends DomainRecord { activityId: string; activityRevision: number; capability: string; status: string; expiresAt: IsoTimestamp | null; }
 export interface Evidence extends DomainRecord { activityId: string; activityRevision: number; kind: string; repositoryRevision: string; status: string; }
-export interface Review extends DomainRecord { activityId: string; activityRevision: number; reviewerAgentId: string; decision: string; }
+export interface Review extends DomainRecord {
+  activityId: string; activityRevision: number; reviewerAgentId: string; decision: string;
+  evidenceId?: string; repositoryRevision?: string; attempt?: number; inputFingerprint?: string;
+}
 export interface Operation extends DomainRecord {
   activityId: string;
   idempotencyKey: string;
