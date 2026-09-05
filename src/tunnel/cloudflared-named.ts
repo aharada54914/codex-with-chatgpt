@@ -3,7 +3,14 @@ import readline from "node:readline";
 import type { Logger } from "../logger/index.js";
 import { nullLogger } from "../logger/index.js";
 import { findBinary } from "./detect.js";
-import type { TunnelDoctorReport, TunnelProvider, TunnelStatus } from "./provider.js";
+import type {
+  TunnelDoctorReport,
+  TunnelError,
+  TunnelProvider,
+  TunnelStartResult,
+  TunnelStatus,
+  TunnelStopResult,
+} from "./provider.js";
 
 const CONNECTED_RE = /registered tunnel connection/i;
 const HOSTNAME_RE = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
@@ -62,16 +69,21 @@ export class CloudflaredNamedTunnel implements TunnelProvider {
     return `https://${this.hostname}`;
   }
 
-  async start(localPort: number): Promise<string> {
-    if (this.child && this.connected) return this.publicUrl();
+  async start(localPort: number): Promise<TunnelStartResult> {
+    if (this.child && this.connected) return { ok: true, provider: this.name, url: this.publicUrl() };
     const bin = this.binary();
     if (!bin) {
-      throw new Error(
-        "cloudflared is not installed. Install it (e.g. `brew install cloudflared`) and retry."
-      );
+      return {
+        ok: false,
+        provider: this.name,
+        error: {
+          code: "binary_not_found",
+          message: "cloudflared is not installed. Install it (e.g. `brew install cloudflared`) and retry.",
+        },
+      };
     }
 
-    return new Promise<string>((resolve, reject) => {
+    return new Promise<TunnelStartResult>((resolve) => {
       const child = spawn(
         bin,
         [
@@ -99,7 +111,13 @@ export class CloudflaredNamedTunnel implements TunnelProvider {
         if (!this.connected) {
           this.lastError = "Named tunnel start timed out";
           child.kill("SIGTERM");
-          finish(() => reject(new Error(this.lastError ?? "Named tunnel start timed out")));
+          finish(() =>
+            resolve({
+              ok: false,
+              provider: this.name,
+              error: { code: "start_timeout", message: this.lastError ?? "Named tunnel start timed out" },
+            })
+          );
         }
       }, this.startTimeoutMs);
 
@@ -110,7 +128,7 @@ export class CloudflaredNamedTunnel implements TunnelProvider {
             this.connected = true;
             const url = this.publicUrl();
             this.logger.info(`Named tunnel established: ${url}`);
-            finish(() => resolve(url));
+            finish(() => resolve({ ok: true, provider: this.name, url }));
           }
           if (/\b(error|failed|fatal)\b/i.test(line)) {
             this.lastError = line.slice(0, 400);
@@ -124,7 +142,13 @@ export class CloudflaredNamedTunnel implements TunnelProvider {
       child.on("error", (error) => {
         this.child = null;
         this.connected = false;
-        finish(() => reject(error));
+        finish(() =>
+          resolve({
+            ok: false,
+            provider: this.name,
+            error: { code: "process_spawn_failed", message: error instanceof Error ? error.message : String(error) },
+          })
+        );
       });
       child.on("exit", (code) => {
         const wasStarting = !this.connected;
@@ -133,29 +157,42 @@ export class CloudflaredNamedTunnel implements TunnelProvider {
         this.connected = false;
         if (wasStarting) {
           finish(() =>
-            reject(
-              new Error(
-                `cloudflared exited (code ${code}) before establishing the named tunnel${
+            resolve({
+              ok: false,
+              provider: this.name,
+              error: {
+                code: "process_exited",
+                message: `cloudflared exited (code ${code}) before establishing the named tunnel${
                   this.lastError ? `: ${this.lastError}` : ""
-                }`
-              )
-            )
+                }`,
+              },
+            })
           );
         }
       });
     });
   }
 
-  async stop(): Promise<void> {
+  async stop(): Promise<TunnelStopResult> {
     if (this.child) {
-      this.child.kill("SIGTERM");
+      try {
+        this.child.kill("SIGTERM");
+      } catch {
+        return {
+          ok: false,
+          provider: this.name,
+          error: { code: "stop_failed", message: "Failed to stop named tunnel" },
+        };
+      }
       this.child = null;
     }
     this.connected = false;
+    return { ok: true, provider: this.name };
   }
 
-  async restart(localPort: number): Promise<string> {
-    await this.stop();
+  async restart(localPort: number): Promise<TunnelStartResult> {
+    const stopped = await this.stop();
+    if (!stopped.ok) return stopped;
     return this.start(localPort);
   }
 
@@ -165,6 +202,7 @@ export class CloudflaredNamedTunnel implements TunnelProvider {
       url: this.connected ? this.publicUrl() : null,
       provider: this.name,
       detail: this.lastError ?? undefined,
+      state: this.child !== null && this.connected ? "running" : "stopped",
     };
   }
 

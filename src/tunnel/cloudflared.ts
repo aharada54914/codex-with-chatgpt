@@ -4,7 +4,14 @@ import type { Logger } from "../logger/index.js";
 import { nullLogger } from "../logger/index.js";
 import { SERVICE_NAME } from "../version.js";
 import { findBinary } from "./detect.js";
-import type { TunnelDoctorReport, TunnelProvider, TunnelStatus } from "./provider.js";
+import type {
+  TunnelDoctorReport,
+  TunnelError,
+  TunnelProvider,
+  TunnelStartResult,
+  TunnelStatus,
+  TunnelStopResult,
+} from "./provider.js";
 
 const QUICK_TUNNEL_URL_RE = /https:\/\/[^\s|]+/gi;
 const QUICK_TUNNEL_HOST_RE = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\.trycloudflare\.com$/i;
@@ -15,6 +22,10 @@ function isBridgeHealth(payload: unknown): boolean {
   if (!payload || typeof payload !== "object") return false;
   const health = payload as Record<string, unknown>;
   return health.service === SERVICE_NAME && health.status === "ok";
+}
+
+function tunnelError(code: TunnelError["code"], message: string, detail?: string): TunnelError {
+  return { code, message, detail };
 }
 
 async function bridgeHealth(
@@ -74,7 +85,7 @@ export class CloudflaredQuickTunnel implements TunnelProvider {
   private readonly startTimeoutMs: number;
   private readonly spawnImpl: NonNullable<CloudflaredQuickTunnelOptions["spawnImpl"]>;
   private readonly fetchImpl: NonNullable<CloudflaredQuickTunnelOptions["fetchImpl"]>;
-  private starting: Promise<string> | null = null;
+  private starting: Promise<TunnelStartResult> | null = null;
   private cancelStart: (() => void) | null = null;
 
   constructor(
@@ -91,8 +102,8 @@ export class CloudflaredQuickTunnel implements TunnelProvider {
     return this.binaryOverride ?? findBinary("cloudflared");
   }
 
-  async start(localPort: number): Promise<string> {
-    if (this.child && this.url) return this.url;
+  async start(localPort: number): Promise<TunnelStartResult> {
+    if (this.child && this.url) return { ok: true, provider: this.name, url: this.url };
     if (this.starting) return this.starting;
     const starting = this.startProcess(localPort);
     this.starting = starting;
@@ -103,17 +114,20 @@ export class CloudflaredQuickTunnel implements TunnelProvider {
     }
   }
 
-  private startProcess(localPort: number): Promise<string> {
+  private startProcess(localPort: number): Promise<TunnelStartResult> {
     const bin = this.binary();
     if (!bin) {
-      return Promise.reject(
-        new Error(
+      return Promise.resolve({
+        ok: false,
+        provider: this.name,
+        error: tunnelError(
+          "binary_not_found",
           "cloudflared is not installed. Install it (e.g. `brew install cloudflared`) and retry."
-        )
-      );
+        ),
+      });
     }
 
-    return new Promise<string>((resolve, reject) => {
+    return new Promise<TunnelStartResult>((resolve) => {
       let child: ChildProcess;
       try {
         child = this.spawnImpl(
@@ -122,7 +136,14 @@ export class CloudflaredQuickTunnel implements TunnelProvider {
           { stdio: ["ignore", "pipe", "pipe"], windowsHide: true }
         );
       } catch (error) {
-        reject(error);
+        resolve({
+          ok: false,
+          provider: this.name,
+          error: {
+            code: "process_spawn_failed",
+            message: error instanceof Error ? error.message : String(error),
+          },
+        });
         return;
       }
       this.child = child;
@@ -164,7 +185,20 @@ export class CloudflaredQuickTunnel implements TunnelProvider {
             this.child = null;
             this.url = null;
           }
-          reject(error instanceof Error ? error : new Error(String(error)));
+          resolve({
+            ok: false,
+            provider: this.name,
+            error: tunnelError(
+              error instanceof Error && error.message.includes("timed out")
+                ? "start_timeout"
+                : error instanceof Error && error.message.includes("stopped")
+                  ? "start_stopped"
+                  : error instanceof Error && error.message.includes("spawn")
+                    ? "process_spawn_failed"
+                    : "process_exited",
+              error instanceof Error ? error.message : String(error)
+            ),
+          });
         });
       };
 
@@ -181,7 +215,7 @@ export class CloudflaredQuickTunnel implements TunnelProvider {
             this.url = url;
             this.lastError = null;
             this.logger.info(`Quick tunnel established: ${url}`);
-            resolve(url);
+            resolve({ ok: true, provider: this.name, url });
           },
           false
         );
@@ -266,7 +300,7 @@ export class CloudflaredQuickTunnel implements TunnelProvider {
     });
   }
 
-  async stop(): Promise<void> {
+  async stop(): Promise<TunnelStopResult> {
     this.cancelStart?.();
     if (this.child) {
       try {
@@ -278,10 +312,12 @@ export class CloudflaredQuickTunnel implements TunnelProvider {
     }
     this.url = null;
     this.lastError = null;
+    return { ok: true, provider: this.name };
   }
 
-  async restart(localPort: number): Promise<string> {
-    await this.stop();
+  async restart(localPort: number): Promise<TunnelStartResult> {
+    const stopped = await this.stop();
+    if (!stopped.ok) return stopped;
     return this.start(localPort);
   }
 
@@ -291,6 +327,7 @@ export class CloudflaredQuickTunnel implements TunnelProvider {
       url: this.url,
       provider: this.name,
       detail: this.lastError ?? undefined,
+      state: this.child !== null && this.url !== null ? "running" : "stopped",
     };
   }
 

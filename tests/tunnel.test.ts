@@ -104,7 +104,7 @@ describe("CloudflaredQuickTunnel", () => {
     const starting = tunnel.start(3333);
     announceUrl(child);
 
-    await expect(starting).resolves.toBe(QUICK_URL);
+    await expect(starting).resolves.toMatchObject({ ok: true, provider: "cloudflare-quick", url: QUICK_URL });
     expect(spawnImpl).toHaveBeenCalledWith(
       "cloudflared",
       ["tunnel", "--url", "http://127.0.0.1:3333", "--no-autoupdate"],
@@ -122,7 +122,7 @@ describe("CloudflaredQuickTunnel", () => {
     const { child, tunnel } = setupTunnel(async () => healthResponse());
     const starting = tunnel.start(3333);
     announceUrl(child);
-    await expect(starting).resolves.toBe(QUICK_URL);
+    await expect(starting).resolves.toMatchObject({ ok: true, provider: "cloudflare-quick", url: QUICK_URL });
 
     child.stderr.write("ERR runtime connection error\n");
     await new Promise((resolve) => setImmediate(resolve));
@@ -139,9 +139,11 @@ describe("CloudflaredQuickTunnel", () => {
     const starting = tunnel.start(3333);
     announceUrl(child);
 
-    await expect(starting).rejects.toThrow(/timed out/i);
+    await expect(starting).resolves.toMatchObject({ ok: false, provider: "cloudflare-quick" });
+    const outcome = await starting;
+    if (!outcome.ok) expect(outcome.error.code).toBe("start_timeout");
     expect(child.kill).toHaveBeenCalledWith("SIGTERM");
-    expect(tunnel.status()).toMatchObject({ running: false, url: null });
+    expect(tunnel.status()).toMatchObject({ running: false, url: null, state: "stopped" });
   });
 
   it("does not spawn twice or resolve a stopped pending start", async () => {
@@ -152,8 +154,10 @@ describe("CloudflaredQuickTunnel", () => {
 
     const concurrent = tunnel.start(3333);
     await tunnel.stop();
-    await expect(starting).rejects.toThrow(/stopped/i);
-    await expect(concurrent).rejects.toThrow(/stopped/i);
+    await expect(starting).resolves.toMatchObject({ ok: false, provider: "cloudflare-quick" });
+    await expect(concurrent).resolves.toMatchObject({ ok: false, provider: "cloudflare-quick" });
+    const stopped = await starting;
+    if (!stopped.ok) expect(stopped.error.code).toBe("start_stopped");
     expect(spawnImpl).toHaveBeenCalledTimes(1);
     expect(child.kill).toHaveBeenCalledWith("SIGTERM");
   });
@@ -170,8 +174,10 @@ describe("CloudflaredQuickTunnel", () => {
     child.exitCode = 1;
     child.emit("exit", 1, null);
     resolveFetch(healthResponse());
-    await expect(starting).rejects.toThrow(/exited/i);
-    expect(tunnel.status()).toMatchObject({ running: false, url: null });
+    await expect(starting).resolves.toMatchObject({ ok: false, provider: "cloudflare-quick" });
+    const exited = await starting;
+    if (!exited.ok) expect(exited.error.code).toBe("process_exited");
+    expect(tunnel.status()).toMatchObject({ running: false, url: null, state: "stopped" });
   });
 
   it("rejects when spawning reports an asynchronous error", async () => {
@@ -180,8 +186,10 @@ describe("CloudflaredQuickTunnel", () => {
     await new Promise((resolve) => setImmediate(resolve));
     child.emit("error", new Error("spawn cloudflared ENOENT"));
 
-    await expect(starting).rejects.toThrow(/ENOENT/i);
-    expect(tunnel.status()).toMatchObject({ running: false, url: null });
+    await expect(starting).resolves.toMatchObject({ ok: false, provider: "cloudflare-quick" });
+    const spawnFailed = await starting;
+    if (!spawnFailed.ok) expect(spawnFailed.error.code).toBe("process_spawn_failed");
+    expect(tunnel.status()).toMatchObject({ running: false, url: null, state: "stopped" });
   });
 
   it("retries a non-ready health response before resolving", async () => {
@@ -196,7 +204,7 @@ describe("CloudflaredQuickTunnel", () => {
     const starting = tunnel.start(3333);
     announceUrl(child);
 
-    await expect(starting).resolves.toBe(QUICK_URL);
+    await expect(starting).resolves.toMatchObject({ ok: true, provider: "cloudflare-quick", url: QUICK_URL });
     expect(calls).toBe(2);
     expect(cancelBody).toHaveBeenCalledTimes(1);
     await tunnel.stop();

@@ -177,10 +177,15 @@ export async function startBridge(opts: BridgeOptions): Promise<Bridge> {
   app.post("/admin/tunnel/start", adminGuard, (_req, res) => {
     tunnel
       .start(port)
-      .then((url) => {
-        publicBaseUrl = url;
+      .then((result) => {
+        if (!result.ok) {
+          logger.error(`Tunnel start failed: ${result.error.message}`);
+          res.status(500).json({ error: result.error.code, message: result.error.message, detail: result.error.detail ?? null });
+          return;
+        }
+        publicBaseUrl = result.url;
         persistRuntime();
-        res.json({ url });
+        res.json({ url: result.url, provider: result.provider });
       })
       .catch((error: Error) => {
         logger.error(`Tunnel start failed: ${error.message}`);
@@ -189,10 +194,14 @@ export async function startBridge(opts: BridgeOptions): Promise<Bridge> {
   });
 
   app.post("/admin/tunnel/stop", adminGuard, (_req, res) => {
-    void tunnel.stop().then(() => {
+    void tunnel.stop().then((result) => {
+      if (!result.ok) {
+        res.status(500).json({ error: result.error.code, message: result.error.message });
+        return;
+      }
       publicBaseUrl = null;
       persistRuntime();
-      res.json({ stopped: true });
+      res.json({ stopped: true, provider: result.provider });
     });
   });
 
