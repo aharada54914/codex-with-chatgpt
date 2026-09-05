@@ -4,6 +4,7 @@ import { ActivityService } from "../activities/service.js";
 import type { Agent, AuditEvent, Review } from "../domain/types.js";
 import { sanitizeExecutionOutput } from "../execution/sanitize.js";
 import type { DomainRepositories } from "../state/repository.js";
+import type { WorkflowCheckpoints } from "../recovery/checkpoints.js";
 import type { VerificationEvidence, VerificationService } from "../verification/service.js";
 
 export type ReviewDecision = "ACCEPTED" | "FIX_REQUIRED";
@@ -50,6 +51,7 @@ export class ReviewService {
     private readonly verification: VerificationService,
     private readonly adapter: ReviewerAdapter,
     private readonly source: ReviewSource,
+    private readonly checkpoints: WorkflowCheckpoints = { checkpoint: () => undefined },
   ) {}
 
   async request(input: {
@@ -104,6 +106,7 @@ export class ReviewService {
       }
       this.bindReviewer(reviewer, created);
       const raw = await this.adapter.review({ threadId: created.threadId, packet });
+      this.checkpoints.checkpoint("review");
       const decision = (raw as { decision?: unknown })?.decision;
       if (decision !== "ACCEPTED" && decision !== "FIX_REQUIRED") {
         throw new ReviewError("INVALID_DECISION", "Reviewer returned an invalid decision");
@@ -200,6 +203,7 @@ export class ReviewService {
       };
       this.repositories.reviews.insert(draft);
       const recorded = this.repositories.reviews.get(draft.id)!;
+      this.checkpoints.checkpoint("transition");
       new ActivityService(this.repositories).transition({
         activityId: packet.activityId,
         to: decision === "ACCEPTED" ? "DONE" : "FIX_REQUIRED",

@@ -30,7 +30,17 @@ export interface Agent extends DomainRecord {
   attempt?: number;
   status?: "RUNNING" | "COMPLETED" | "FAILED";
 }
-export interface Job extends DomainRecord { activityId: string; kind: string; status: string; }
+export interface Job extends DomainRecord {
+  activityId: string;
+  kind: string;
+  status: string;
+  sideEffectKey?: string;
+  requestBinding?: string;
+  activityRevision?: number;
+  dispatchAttemptId?: string;
+  externalJobId?: string;
+  repositoryRevision?: string;
+}
 export interface Approval extends DomainRecord {
   activityId: string;
   activityRevision: number;

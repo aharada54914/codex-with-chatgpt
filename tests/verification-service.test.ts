@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ActivityService } from "../src/activities/service.js";
 import type { Project } from "../src/domain/types.js";
+import { CrashInjector } from "../src/recovery/checkpoints.js";
 import { openStateDatabase } from "../src/state/database.js";
 import { DomainRepositories } from "../src/state/repository.js";
 import { detectVerificationChecks, VerificationService, type VerificationExecutor } from "../src/verification/service.js";
@@ -86,5 +87,20 @@ describe("deterministic verification", () => {
     await expect(new VerificationService(second.repositories, second.executor).run({ projectId: "prj_verify", activityId: second.activity.id,
       expectedRevision: 0, checks: [{ name: "test", command: "test", required: true }] })).rejects.toMatchObject({ code: "STALE_REVISION" });
     expect(second.repositories.evidence.listByProject("prj_verify")).toEqual([]); second.database.close();
+  });
+
+  it("rolls back evidence atomically at the evidence-write crash boundary", async () => {
+    const fixture = setup([0]);
+    const now = new Date().toISOString(); fixture.repositories.approvals.insert({ id: "apr-evidence-crash",
+      projectId: "prj_verify", activityId: fixture.activity.id, activityRevision: -1, capability: "network",
+      status: "PENDING", expiresAt: null, revision: 0, createdAt: now, updatedAt: now });
+    const expectedRevision = fixture.repositories.activities.get(fixture.activity.id)!.revision;
+    const service = new VerificationService(fixture.repositories, fixture.executor, new CrashInjector("evidence_write"));
+    await expect(service.run({ projectId: "prj_verify", activityId: fixture.activity.id, expectedRevision,
+      checks: [{ name: "test", command: "pnpm test", required: true }] })).rejects.toThrow("Injected crash at evidence_write");
+    expect(fixture.repositories.evidence.listByProject("prj_verify")).toHaveLength(0);
+    expect(fixture.repositories.activities.get(fixture.activity.id)?.revision).toBe(expectedRevision);
+    expect(fixture.repositories.approvals.get("apr-evidence-crash")?.status).toBe("PENDING");
+    fixture.database.close();
   });
 });

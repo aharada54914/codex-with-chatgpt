@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 
 import type { Evidence } from "../domain/types.js";
 import type { DomainRepositories } from "../state/repository.js";
+import type { WorkflowCheckpoints } from "../recovery/checkpoints.js";
 
 export interface VerificationCheck { name: string; command: string; required: boolean }
 export interface CheckResult {
@@ -48,7 +49,11 @@ function safeOutputReference(value: string | undefined): string | null {
 }
 
 export class VerificationService {
-  constructor(private readonly repositories: DomainRepositories, private readonly executor: VerificationExecutor) {}
+  constructor(
+    private readonly repositories: DomainRepositories,
+    private readonly executor: VerificationExecutor,
+    private readonly checkpoints: WorkflowCheckpoints = { checkpoint: () => undefined },
+  ) {}
 
   async run(input: { projectId: string; activityId: string; expectedRevision: number; checks: VerificationCheck[] }): Promise<VerificationEvidence> {
     const initial = this.requireActivity(input.projectId, input.activityId);
@@ -84,6 +89,7 @@ export class VerificationService {
       const current = this.requireActivity(input.projectId, input.activityId);
       if (current.revision !== input.expectedRevision) throw new VerificationError("STALE_REVISION", "Activity revision changed");
       this.repositories.evidence.insert(draft);
+      this.checkpoints.checkpoint("evidence_write");
       return this.repositories.evidence.get(draft.id) as VerificationEvidence;
     });
   }

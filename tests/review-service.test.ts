@@ -2,6 +2,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ActivityService } from "../src/activities/service.js";
 import type { Agent, Project } from "../src/domain/types.js";
+import { CrashInjector } from "../src/recovery/checkpoints.js";
 import { ReviewService, type ReviewerAdapter, type ReviewSource } from "../src/review/service.js";
 import { openStateDatabase } from "../src/state/database.js";
 import { DomainRepositories } from "../src/state/repository.js";
@@ -29,8 +30,9 @@ function setup(decision: "ACCEPTED" | "FIX_REQUIRED" = "ACCEPTED") {
   return { database, repositories, activity, implementer, verification, adapter, source };
 }
 async function verified(fixture: ReturnType<typeof setup>) {
+  const expectedRevision = fixture.repositories.activities.get(fixture.activity.id)!.revision;
   return fixture.verification.run({ projectId: "prj_review", activityId: fixture.activity.id,
-    expectedRevision: fixture.activity.revision, checks: [{ name: "test", command: "pnpm test", required: true }] });
+    expectedRevision, checks: [{ name: "test", command: "pnpm test", required: true }] });
 }
 describe("independent review orchestration", () => {
   it("binds an isolated reviewer to actual diff and verification evidence then accepts", async () => {
@@ -124,5 +126,24 @@ describe("independent review orchestration", () => {
       repositoryRevision: "commit-a", successCriteria: [] })).rejects.toMatchObject({ code: "STALE_REVISION" });
     expect(fixture.repositories.reviews.listByProject("prj_review")).toHaveLength(0);
     expect(fixture.repositories.activities.get(fixture.activity.id)?.status).toBe("REVIEWING"); fixture.database.close();
+  });
+
+  it("fails and audits the reserved reviewer without partial decisions at review crash boundaries", async () => {
+    for (const boundary of ["review", "transition"] as const) {
+      const fixture = setup(); const now = new Date().toISOString(); fixture.repositories.approvals.insert({
+        id: `apr-${boundary}`, projectId: "prj_review", activityId: fixture.activity.id, activityRevision: -1,
+        capability: "network", status: "PENDING", expiresAt: null, revision: 0, createdAt: now, updatedAt: now });
+      const evidence = await verified(fixture);
+      const service = new ReviewService(fixture.repositories, fixture.verification, fixture.adapter, fixture.source,
+        new CrashInjector(boundary));
+      await expect(service.request({ projectId: "prj_review", activityId: fixture.activity.id,
+        implementerAgentId: fixture.implementer.id, expectedRevision: evidence.activityRevision,
+        repositoryRevision: "commit-a", successCriteria: [] })).rejects.toMatchObject({ code: "REVIEW_FAILED" });
+      expect(fixture.repositories.reviews.listByProject("prj_review")).toHaveLength(0);
+      expect(fixture.repositories.activities.get(fixture.activity.id)?.status).toBe("REVIEWING");
+      expect(fixture.repositories.agents.listByProject("prj_review").find((item) => item.role === "reviewer")?.status).toBe("FAILED");
+      expect(fixture.repositories.approvals.get(`apr-${boundary}`)?.status).toBe("PENDING");
+      fixture.database.close();
+    }
   });
 });

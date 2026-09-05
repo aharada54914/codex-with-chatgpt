@@ -105,6 +105,15 @@ export const migrations: readonly Migration[] = [
       `);
     },
   },
+  {
+    version: 6,
+    name: "unique-job-side-effects",
+    apply(database) {
+      database.exec(`CREATE UNIQUE INDEX jobs_side_effect_key_unique
+        ON jobs(json_extract(payload_json, '$.sideEffectKey'))
+        WHERE json_type(payload_json, '$.sideEffectKey') = 'text'`);
+    },
+  },
 ];
 
 export function migrate(database: Database.Database): void {
