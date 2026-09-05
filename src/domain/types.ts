@@ -8,7 +8,14 @@ export interface DomainRecord {
   updatedAt: IsoTimestamp;
 }
 
-export interface Project extends DomainRecord { projectId: null; name: string; rootFingerprint: string; }
+export interface Project extends DomainRecord {
+  projectId: null;
+  name: string;
+  /** Local-only canonical path. Never include this field in control-plane projections. */
+  canonicalRoot: string;
+  rootFingerprint: string;
+  filesystemIdentity: string;
+}
 export interface Activity extends DomainRecord { goal: string; status: string; }
 export interface Agent extends DomainRecord { activityId: string; role: "implementer" | "reviewer"; threadId: string | null; }
 export interface Job extends DomainRecord { activityId: string; kind: string; status: string; }

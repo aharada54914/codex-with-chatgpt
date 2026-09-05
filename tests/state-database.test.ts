@@ -5,6 +5,7 @@ import Database from "better-sqlite3";
 
 import { backupDatabase, openStateDatabase, verifyDatabase } from "../src/state/database.js";
 import { DomainRepositories, SqliteRepository } from "../src/state/repository.js";
+import { migrations } from "../src/state/migrations.js";
 import type { Activity } from "../src/domain/types.js";
 import { cleanup, makeTmpDir } from "./helpers.js";
 
@@ -23,7 +24,10 @@ describe("durable state database", () => {
     const file = path.join(directory, "state.sqlite3");
     const database = openStateDatabase(file);
     expect(database.pragma("journal_mode", { simple: true })).toBe("wal");
-    expect(database.prepare("SELECT version FROM schema_migrations").all()).toEqual([{ version: 1 }]);
+    expect(database.prepare("SELECT version FROM schema_migrations ORDER BY version").all()).toEqual([
+      { version: 1 },
+      { version: 2 },
+    ]);
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
     if (process.platform !== "win32") expect(fs.statSync(directory).mode & 0o777).toBe(directoryMode);
     verifyDatabase(database);
@@ -40,6 +44,28 @@ describe("durable state database", () => {
     const moved = path.join(directory, "moved.sqlite3");
     fs.renameSync(file, moved);
     expect(fs.existsSync(moved)).toBe(true);
+  });
+
+  it("rejects legacy project rows that cannot be safely bound to a canonical root", () => {
+    const directory = makeTmpDir("c2c-state-legacy-project"); directories.push(directory);
+    const file = path.join(directory, "state.sqlite3");
+    const legacy = new Database(file);
+    legacy.exec(`CREATE TABLE schema_migrations (
+      version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL
+    )`);
+    migrations[0]!.apply(legacy);
+    legacy.prepare("INSERT INTO schema_migrations(version, name, applied_at) VALUES (?, ?, ?)")
+      .run(1, migrations[0]!.name, "2026-09-05T00:00:00.000Z");
+    const oldProject = {
+      id: "legacy", projectId: null, revision: 0, name: "legacy", rootFingerprint: "old",
+      createdAt: "2026-09-05T00:00:00.000Z", updatedAt: "2026-09-05T00:00:00.000Z",
+    };
+    legacy.prepare(`INSERT INTO projects
+      (id, project_id, revision, payload_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(oldProject.id, null, 0, JSON.stringify(oldProject), oldProject.createdAt, oldProject.updatedAt);
+    legacy.close();
+
+    expect(() => openStateDatabase(file)).toThrow(/cannot migrate legacy project/i);
   });
 
   it("does not change permissions on a caller-owned parent directory", () => {

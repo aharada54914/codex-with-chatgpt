@@ -27,6 +27,23 @@ export const migrations: readonly Migration[] = [
       database.exec("CREATE UNIQUE INDEX operations_idempotency_idx ON operations(json_extract(payload_json, '$.idempotencyKey'));");
     },
   },
+  {
+    version: 2,
+    name: "unique-project-roots",
+    apply(database) {
+      const legacy = database.prepare(`SELECT id FROM projects
+        WHERE json_type(payload_json, '$.canonicalRoot') IS NOT 'text'
+           OR json_type(payload_json, '$.filesystemIdentity') IS NOT 'text'
+        LIMIT 1`).get() as { id: string } | undefined;
+      if (legacy) {
+        throw new Error(
+          `Cannot migrate legacy project '${legacy.id}': re-register its workspace with the V2 Project Registry`,
+        );
+      }
+      database.exec(`CREATE UNIQUE INDEX projects_root_fingerprint_unique
+        ON projects(json_extract(payload_json, '$.rootFingerprint'))`);
+    },
+  },
 ];
 
 export function migrate(database: Database.Database): void {
