@@ -18,6 +18,8 @@
 - Workspace security semantics from V1 remain intact.
 - Silent fallback is forbidden.
 
-## PR-01 rule
+## Beta release rule
 
-PR-01 is documentation-only. Do not change runtime behavior, APIs, dependencies, or source layout.
+- Treat `UNAVAILABLE` as a blocked external profile, never as a passing release gate.
+- Do not substitute the legacy Cloudflare transport for a Secure MCP profile result.
+- Full-control requires the pinned App Server version and explicit task/approval scopes.

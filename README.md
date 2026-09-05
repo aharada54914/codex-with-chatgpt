@@ -3,6 +3,14 @@
 > ChatGPT thinks. Codex works.
 > ChatGPT 负责思考，Codex 负责干活。
 
+> [!NOTE]
+> The V2 beta branch is documented in the [architecture](docs/architecture-v2.md),
+> [compatibility matrix](docs/v2/compatibility-matrix.md), [migration guide](docs/v2/migration-guide.md),
+> [threat model](docs/v2/threat-model.md), [operations runbook](docs/v2/operations.md), and
+> [known limitations](docs/v2/known-limitations.md). The V1 instructions below describe the explicit compatibility path.
+
+The machine-enforced beta check is available as `npm run release:gate`; it requires fresh, signed evidence from the target ChatGPT/Secure MCP environment and never converts missing external availability into PASS.
+
 > [!IMPORTANT]
 > **遇到问题？** 请先向 Codex 发送 **「更新 Codex with ChatGPT」** 并重试。更新到最新版本可以解决大多数已知问题。  
 > **Having trouble?** First ask Codex to **“Update Codex with ChatGPT”** and try again. Updating to the latest version resolves most known issues.
