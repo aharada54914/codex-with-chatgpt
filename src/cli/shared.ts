@@ -165,10 +165,10 @@ export async function ensureBridgeAndTunnel(
         "NEED_CLOUDFLARED: cloudflared is not installed. Install it first (macOS: brew install cloudflared)."
       );
     }
-  const result = await adminFetch<TunnelStartResponse>(runtime, "POST", "/admin/tunnel/start", 90_000);
-  if (!result.url) throw new Error(result.message ?? "Tunnel start failed");
-  info = await adminFetch<AdminInfo>(runtime, "GET", "/admin/info");
-  mcpUrl = `${result.url}/mcp`;
+    const result = await adminFetch<TunnelStartResponse>(runtime, "POST", "/admin/tunnel/start", 90_000);
+    if (!result.url) throw new Error(result.message ?? "Tunnel start failed");
+    info = await adminFetch<AdminInfo>(runtime, "GET", "/admin/info");
+    mcpUrl = `${result.url}/mcp`;
   }
   return { runtime, info, mcpUrl };
 }

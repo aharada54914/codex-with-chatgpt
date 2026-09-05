@@ -1,9 +1,11 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
+import path from "node:path";
 import type { ChildProcess } from "node:child_process";
 import { PassThrough } from "node:stream";
 import { findBinary } from "../src/tunnel/detect.js";
+import { createCloudflareTransportProvider } from "../src/tunnel/cloudflare-provider.js";
 import {
   CloudflaredQuickTunnel,
   parseQuickTunnelUrl,
@@ -141,7 +143,7 @@ describe("CloudflaredQuickTunnel", () => {
 
     await expect(starting).resolves.toMatchObject({ ok: false, provider: "cloudflare-quick" });
     const outcome = await starting;
-    if (!outcome.ok) expect(outcome.error.code).toBe("start_timeout");
+    if (!outcome.ok) expect(outcome.error.code).toBe("health_check_failed");
     expect(child.kill).toHaveBeenCalledWith("SIGTERM");
     expect(tunnel.status()).toMatchObject({ running: false, url: null, state: "stopped" });
   });
@@ -207,7 +209,40 @@ describe("CloudflaredQuickTunnel", () => {
     await expect(starting).resolves.toMatchObject({ ok: true, provider: "cloudflare-quick", url: QUICK_URL });
     expect(calls).toBe(2);
     expect(cancelBody).toHaveBeenCalledTimes(1);
+  await tunnel.stop();
+  });
+
+  it("reports a typed healthy doctor result after the tunnel is ready", async () => {
+    const { child, tunnel } = setupTunnel(async () => healthResponse());
+    const starting = tunnel.start(3333);
+    announceUrl(child);
+    await expect(starting).resolves.toMatchObject({ ok: true, provider: "cloudflare-quick", url: QUICK_URL });
+
+    const report = await tunnel.doctor();
+    expect(report).toMatchObject({
+      ok: true,
+      provider: "cloudflare-quick",
+      binaryFound: true,
+      running: true,
+      url: QUICK_URL,
+      problems: [],
+    });
     await tunnel.stop();
+  });
+
+  it("reports a typed doctor failure when the binary is missing", async () => {
+    const tunnel = new CloudflaredQuickTunnel(undefined, undefined, {
+      spawnImpl: vi.fn(),
+      fetchImpl: vi.fn(),
+    });
+    const report = await tunnel.doctor();
+    expect(report).toMatchObject({
+      ok: false,
+      provider: "cloudflare-quick",
+      binaryFound: false,
+      running: false,
+      url: null,
+    });
   });
 });
 
@@ -262,6 +297,16 @@ ID                                   NAME          CREATED
   });
 });
 
+describe("bridge transport seam", () => {
+  it("routes Cloudflare selection through a dedicated transport factory", () => {
+    const source = fs.readFileSync(path.resolve("src/bridge/server.ts"), "utf8");
+    expect(source).toContain('from "../tunnel/cloudflare-provider.js"');
+    expect(source).not.toContain('from "../tunnel/cloudflared.js"');
+    expect(source).not.toContain('from "../tunnel/cloudflared-named.js"');
+    expect(createCloudflareTransportProvider).toBeTypeOf("function");
+  });
+});
+
 describe("tunnel preference state", () => {
   it("asks once, then remembers a quick choice", () => {
     stateDirs.push(isolateStateDir());
@@ -296,8 +341,9 @@ describe("tunnel preference state", () => {
     });
   });
 
-  it("falls back to a temporary address when named provisioning fails", () => {
+  it("returns an explicit failure when named provisioning cannot create the tunnel", () => {
     stateDirs.push(isolateStateDir());
+    expect(readTunnelState("ws2")).toMatchObject({ preference: "unset" });
     const account: CloudflaredAccount = {
       hasCert: () => true,
       login: async () => undefined,
@@ -313,9 +359,33 @@ describe("tunnel preference state", () => {
       zone: "example.com",
       account,
     }).then((result) => {
-      expect(result.fallback).toBe(true);
-      expect(result.state.preference).toBe("quick");
-      expect(result.userMessage).toMatch(/临时地址/);
+      expect(result.ok).toBe(false);
+      expect(result.fallback).toBe(false);
+      expect(result.error.message).toMatch(/no zone/);
+      expect(readTunnelState("ws2")).toMatchObject({ preference: "unset" });
+    });
+  });
+
+  it("returns an explicit failure when the hostname is invalid and does not persist quick fallback state", () => {
+    stateDirs.push(isolateStateDir());
+    const account: CloudflaredAccount = {
+      hasCert: () => true,
+      login: async () => undefined,
+      listTunnels: async () => [],
+      createTunnel: async () => ({ id: "33333333-3333-3333-3333-333333333333", name: "c2c-ws3" }),
+      routeDns: async () => undefined,
+    };
+    return provisionNamedTunnel({
+      workspaceId: "ws3",
+      workspaceName: "Demo",
+      zone: "example.com",
+      hostname: "https://bad.example.com",
+      account,
+    }).then((result) => {
+      expect(result.ok).toBe(false);
+      expect(result.fallback).toBe(false);
+      expect(result.error.message).toMatch(/invalid/i);
+      expect(readTunnelState("ws3")).toMatchObject({ preference: "unset" });
     });
   });
 });

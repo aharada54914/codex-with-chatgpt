@@ -48,6 +48,7 @@ export class CloudflaredNamedTunnel implements TunnelProvider {
   private child: ChildProcess | null = null;
   private connected = false;
   private lastError: string | null = null;
+  private lastFailureCode: TunnelError["code"] | null = null;
 
   constructor(opts: CloudflaredNamedTunnelOptions) {
     const tunnelName = opts.tunnelName.trim();
@@ -99,6 +100,7 @@ export class CloudflaredNamedTunnel implements TunnelProvider {
       this.child = child;
       this.connected = false;
       this.lastError = null;
+      this.lastFailureCode = null;
       let settled = false;
 
       const finish = (fn: () => void): void => {
@@ -115,7 +117,10 @@ export class CloudflaredNamedTunnel implements TunnelProvider {
             resolve({
               ok: false,
               provider: this.name,
-              error: { code: "start_timeout", message: this.lastError ?? "Named tunnel start timed out" },
+              error: {
+                code: this.lastFailureCode ?? "start_timeout",
+                message: this.lastError ?? "Named tunnel start timed out",
+              },
             })
           );
         }
@@ -132,6 +137,7 @@ export class CloudflaredNamedTunnel implements TunnelProvider {
           }
           if (/\b(error|failed|fatal)\b/i.test(line)) {
             this.lastError = line.slice(0, 400);
+            this.lastFailureCode = "process_exited";
             this.logger.debug(`cloudflared: ${line.slice(0, 400)}`);
           }
         });
@@ -146,7 +152,10 @@ export class CloudflaredNamedTunnel implements TunnelProvider {
           resolve({
             ok: false,
             provider: this.name,
-            error: { code: "process_spawn_failed", message: error instanceof Error ? error.message : String(error) },
+            error: {
+              code: "process_spawn_failed",
+              message: error instanceof Error ? error.message : String(error),
+            },
           })
         );
       });
@@ -161,7 +170,7 @@ export class CloudflaredNamedTunnel implements TunnelProvider {
               ok: false,
               provider: this.name,
               error: {
-                code: "process_exited",
+                code: this.lastFailureCode ?? "process_exited",
                 message: `cloudflared exited (code ${code}) before establishing the named tunnel${
                   this.lastError ? `: ${this.lastError}` : ""
                 }`,
@@ -175,9 +184,14 @@ export class CloudflaredNamedTunnel implements TunnelProvider {
 
   async stop(): Promise<TunnelStopResult> {
     if (this.child) {
-      try {
-        this.child.kill("SIGTERM");
-      } catch {
+      const killed = (() => {
+        try {
+          return this.child!.kill("SIGTERM");
+        } catch {
+          return false;
+        }
+      })();
+      if (!killed) {
         return {
           ok: false,
           provider: this.name,
@@ -187,6 +201,8 @@ export class CloudflaredNamedTunnel implements TunnelProvider {
       this.child = null;
     }
     this.connected = false;
+    this.lastError = null;
+    this.lastFailureCode = null;
     return { ok: true, provider: this.name };
   }
 
@@ -213,16 +229,31 @@ export class CloudflaredNamedTunnel implements TunnelProvider {
   async doctor(): Promise<TunnelDoctorReport> {
     const bin = this.binary();
     const problems: string[] = [];
-    if (!bin) problems.push("cloudflared binary not found");
-    if (bin && !this.child) problems.push("named tunnel process not running");
-    if (this.child && !this.connected) problems.push("named tunnel is not connected yet");
+    const errors: TunnelError[] = [];
+    if (!bin) {
+      problems.push("cloudflared binary not found");
+      errors.push({ code: "binary_not_found", message: "cloudflared binary not found" });
+    }
+    if (bin && !this.child) {
+      problems.push("named tunnel process not running");
+      errors.push({ code: "start_stopped", message: "named tunnel process not running" });
+    }
+    if (this.child && !this.connected) {
+      problems.push("named tunnel is not connected yet");
+      errors.push({
+        code: this.lastFailureCode ?? "health_check_failed",
+        message: this.lastError ?? "named tunnel is not connected yet",
+      });
+    }
     return {
+      ok: problems.length === 0,
       provider: this.name,
       binaryFound: bin !== null,
       binaryPath: bin,
       running: this.child !== null && this.connected,
       url: this.connected ? this.publicUrl() : null,
       problems,
+      errors,
     };
   }
 }

@@ -13,12 +13,14 @@ export interface TunnelStatus {
 }
 
 export interface TunnelDoctorReport {
+  ok: boolean;
   provider: string;
   binaryFound: boolean;
   binaryPath: string | null;
   running: boolean;
   url: string | null;
   problems: string[];
+  errors: TunnelError[];
 }
 
 export type TunnelErrorCode =

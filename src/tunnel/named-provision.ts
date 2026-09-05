@@ -5,11 +5,7 @@ import path from "node:path";
 import { findBinary } from "./detect.js";
 import { suggestedNamedHostname } from "./hostname.js";
 import { normalizeNamedTunnelHostname } from "./cloudflared-named.js";
-import {
-  NAMED_FALLBACK_MESSAGE,
-  writeTunnelState,
-  type TunnelState,
-} from "./state.js";
+import { writeTunnelState, type TunnelState } from "./state.js";
 
 const TUNNEL_ID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 const LOGIN_TIMEOUT_MS = 5 * 60_000;
@@ -175,13 +171,22 @@ export class ProcessCloudflaredAccount implements CloudflaredAccount {
   }
 }
 
-export interface ProvisionNamedResult {
-  ok: boolean;
+export interface ProvisionNamedSuccess {
+  fallback: false;
+  ok: true;
   state: TunnelState;
-  fallback: boolean;
-  userMessage?: string;
-  error?: string;
 }
+
+export interface ProvisionNamedFailure {
+  fallback: false;
+  ok: false;
+  error: {
+    code: "invalid_hostname" | "provision_failed";
+    message: string;
+  };
+}
+
+export type ProvisionNamedResult = ProvisionNamedSuccess | ProvisionNamedFailure;
 
 export async function provisionNamedTunnel(opts: {
   workspaceId: string;
@@ -197,7 +202,14 @@ export async function provisionNamedTunnel(opts: {
       ? normalizeNamedTunnelHostname(opts.hostname)
       : suggestedNamedHostname(opts.zone, opts.workspaceName, opts.workspaceId);
   } catch (error) {
-    return fallbackState(opts.workspaceId, "invalid_hostname", (error as Error).message);
+    return {
+      ok: false,
+      fallback: false,
+      error: {
+        code: "invalid_hostname",
+        message: (error as Error).message,
+      },
+    };
   }
 
   const tunnelName = `c2c-${opts.workspaceId}`;
@@ -218,7 +230,14 @@ export async function provisionNamedTunnel(opts: {
     });
     return { ok: true, state, fallback: false };
   } catch (error) {
-    return fallbackState(opts.workspaceId, "provision_failed", (error as Error).message);
+    return {
+      ok: false,
+      fallback: false,
+      error: {
+        code: "provision_failed",
+        message: (error as Error).message,
+      },
+    };
   }
 }
 
@@ -230,15 +249,4 @@ export function chooseQuickTunnel(workspaceId: string, fallbackReason?: string):
     provider: "cloudflare-quick",
     fallbackReason,
   });
-}
-
-function fallbackState(workspaceId: string, reason: string, error: string): ProvisionNamedResult {
-  const state = chooseQuickTunnel(workspaceId, reason);
-  return {
-    ok: true,
-    state,
-    fallback: true,
-    userMessage: NAMED_FALLBACK_MESSAGE,
-    error,
-  };
 }

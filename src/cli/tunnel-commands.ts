@@ -5,7 +5,7 @@ import { findLiveBridge } from "../bridge/runtime.js";
 import { chooseQuickTunnel, hasCloudflaredCert, ProcessCloudflaredAccount, provisionNamedTunnel } from "../tunnel/named-provision.js";
 import { parseZoneInput } from "../tunnel/hostname.js";
 import { NAMED_LOGIN_PROMPT, readTunnelState, TUNNEL_CHOICE_PROMPT } from "../tunnel/state.js";
-import { check, handleCliError, resolveWorkspace, say, tunnelChoicePayload } from "./shared.js";
+import { check, cross, handleCliError, resolveWorkspace, say, tunnelChoicePayload } from "./shared.js";
 
 export function registerTunnelCommands(program: Command): void {
   const tunnelCmd = program.command("tunnel").description("Choose or inspect the public connection for this workspace");
@@ -81,21 +81,32 @@ export function registerTunnelCommands(program: Command): void {
           zone,
           hostname: opts.hostname,
         });
+        if (!result.ok) {
+          const payload = {
+            ...tunnelChoicePayload(workspace),
+            ok: false,
+            fallback: false,
+            error: result.error,
+          };
+          if (opts.json) {
+            say(JSON.stringify(payload));
+            return;
+          }
+          cross(`固定域名の設定に失敗しました: ${result.error.message}`);
+          return;
+        }
         if (await findLiveBridge(workspace.id)) await stopBridge(root);
         const payload = {
           ...tunnelChoicePayload(workspace),
           ok: true,
-          fallback: result.fallback,
-          userMessage: result.userMessage,
-          error: result.error,
+          fallback: false,
           state: result.state,
         };
         if (opts.json) {
           say(JSON.stringify(payload));
           return;
         }
-        if (result.fallback) say(result.userMessage ?? "");
-        else check(`固定域名已就绪：${result.state.hostname}`);
+        check(`固定域名已就绪：${result.state.hostname}`);
       } catch (error) {
         handleCliError(error, opts.json);
       }
