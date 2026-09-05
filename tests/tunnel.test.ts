@@ -11,7 +11,10 @@ import {
   parseQuickTunnelUrl,
   type CloudflaredQuickTunnelOptions,
 } from "../src/tunnel/cloudflared.js";
-import { normalizeNamedTunnelHostname } from "../src/tunnel/cloudflared-named.js";
+import {
+  CloudflaredNamedTunnel,
+  normalizeNamedTunnelHostname,
+} from "../src/tunnel/cloudflared-named.js";
 import { hostnameSlug, parseZoneInput, suggestedNamedHostname } from "../src/tunnel/hostname.js";
 import {
   chooseQuickTunnel,
@@ -242,6 +245,159 @@ describe("CloudflaredQuickTunnel", () => {
       binaryFound: false,
       running: false,
       url: null,
+    });
+  });
+
+  it("reports stop_failed when the process refuses to stop", async () => {
+    const { child, tunnel } = setupTunnel(async () => healthResponse());
+    const starting = tunnel.start(3333);
+    announceUrl(child);
+    await expect(starting).resolves.toMatchObject({ ok: true });
+    child.kill.mockReturnValue(false);
+
+    await expect(tunnel.stop()).resolves.toMatchObject({
+      ok: false,
+      provider: "cloudflare-quick",
+      error: { code: "stop_failed" },
+    });
+  });
+
+  it("reports stop_failed without losing a pending process reference", async () => {
+    const { child, tunnel } = setupTunnel(() => new Promise<Response>(() => {}));
+    const starting = tunnel.start(3333);
+    announceUrl(child);
+    await new Promise((resolve) => setImmediate(resolve));
+    child.kill.mockReturnValue(false);
+
+    await expect(tunnel.stop()).resolves.toMatchObject({
+      ok: false,
+      error: { code: "stop_failed" },
+    });
+    expect(tunnel.status()).toMatchObject({ running: true, state: "starting", url: null });
+    await expect(tunnel.doctor()).resolves.toMatchObject({ running: true, ok: false });
+    child.kill.mockReturnValue(true);
+    await tunnel.stop();
+    await expect(starting).resolves.toMatchObject({ ok: false, error: { code: "start_stopped" } });
+  });
+
+  it("reports stop_failed when a failed start cannot terminate its process", async () => {
+    const { child, tunnel } = setupTunnel(async () => new Response("unavailable", { status: 503 }), 5);
+    child.kill.mockReturnValue(false);
+    const starting = tunnel.start(3333);
+    announceUrl(child);
+
+    await expect(starting).resolves.toMatchObject({ ok: false, error: { code: "stop_failed" } });
+    await expect(tunnel.start(4444)).resolves.toMatchObject({
+      ok: false,
+      error: { code: "start_conflict" },
+    });
+    child.kill.mockReturnValue(true);
+    await expect(tunnel.stop()).resolves.toMatchObject({ ok: true });
+  });
+});
+
+describe("CloudflaredNamedTunnel", () => {
+  it("matches the provider lifecycle result contract", async () => {
+    const child = new FakeCloudflaredProcess();
+    const spawnImpl = vi.fn(() => child as unknown as ChildProcess);
+    const tunnel = new CloudflaredNamedTunnel({
+      tunnelName: "c2c-demo",
+      hostname: "demo.example.com",
+      binaryOverride: "cloudflared",
+      spawnImpl,
+    });
+
+    const starting = tunnel.start(3333);
+    child.stderr.write("INF Registered tunnel connection\n");
+    await expect(starting).resolves.toEqual({
+      ok: true,
+      provider: "cloudflare-named",
+      url: "https://demo.example.com",
+    });
+    expect(tunnel.status()).toMatchObject({
+      state: "running",
+      running: true,
+      provider: "cloudflare-named",
+      url: "https://demo.example.com",
+    });
+    await expect(tunnel.doctor()).resolves.toMatchObject({ ok: true, errors: [] });
+    await expect(tunnel.stop()).resolves.toEqual({ ok: true, provider: "cloudflare-named" });
+    expect(tunnel.status()).toMatchObject({ state: "stopped", running: false, url: null });
+    expect(spawnImpl).toHaveBeenCalledOnce();
+  });
+
+  it("returns a typed binary error without spawning", async () => {
+    const tunnel = new CloudflaredNamedTunnel({
+      tunnelName: "c2c-demo",
+      hostname: "demo.example.com",
+      binaryOverride: "",
+      spawnImpl: vi.fn(),
+    });
+
+    await expect(tunnel.start(3333)).resolves.toMatchObject({
+      ok: false,
+      provider: "cloudflare-named",
+      error: { code: "binary_not_found" },
+    });
+  });
+
+  it("reports when a timed-out named process cannot be stopped", async () => {
+    const child = new FakeCloudflaredProcess();
+    child.kill.mockReturnValue(false);
+    const tunnel = new CloudflaredNamedTunnel({
+      tunnelName: "c2c-demo",
+      hostname: "demo.example.com",
+      binaryOverride: "cloudflared",
+      startTimeoutMs: 5,
+      spawnImpl: vi.fn(() => child as unknown as ChildProcess),
+    });
+
+    await expect(tunnel.start(3333)).resolves.toMatchObject({
+      ok: false,
+      provider: "cloudflare-named",
+      error: { code: "stop_failed" },
+    });
+    expect(tunnel.status()).toMatchObject({ running: true, state: "starting", url: null });
+    await expect(tunnel.doctor()).resolves.toMatchObject({ running: true, ok: false });
+    await expect(tunnel.start(4444)).resolves.toMatchObject({
+      ok: false,
+      error: { code: "start_conflict" },
+    });
+    child.kill.mockReturnValue(true);
+    await expect(tunnel.stop()).resolves.toMatchObject({ ok: true });
+  });
+
+  it("shares a pending start and resolves it as stopped", async () => {
+    const child = new FakeCloudflaredProcess();
+    const spawnImpl = vi.fn(() => child as unknown as ChildProcess);
+    const tunnel = new CloudflaredNamedTunnel({
+      tunnelName: "c2c-demo",
+      hostname: "demo.example.com",
+      binaryOverride: "cloudflared",
+      spawnImpl,
+    });
+
+    const first = tunnel.start(3333);
+    const concurrent = tunnel.start(3333);
+    await tunnel.stop();
+    await expect(first).resolves.toMatchObject({ ok: false, error: { code: "start_stopped" } });
+    await expect(concurrent).resolves.toMatchObject({ ok: false, error: { code: "start_stopped" } });
+    expect(spawnImpl).toHaveBeenCalledOnce();
+  });
+
+  it("converts a synchronous spawn exception into a typed failure", async () => {
+    const tunnel = new CloudflaredNamedTunnel({
+      tunnelName: "c2c-demo",
+      hostname: "demo.example.com",
+      binaryOverride: "cloudflared",
+      spawnImpl: () => {
+        throw new Error("spawn denied");
+      },
+    });
+
+    await expect(tunnel.start(3333)).resolves.toMatchObject({
+      ok: false,
+      error: { code: "process_spawn_failed", message: "spawn denied" },
     });
   });
 });

@@ -9,7 +9,7 @@ export interface TunnelStatus {
   url: string | null;
   provider: string;
   detail?: string;
-  state: "running" | "stopped";
+  state: "running" | "starting" | "stopped";
 }
 
 export interface TunnelDoctorReport {
@@ -28,6 +28,7 @@ export type TunnelErrorCode =
   | "start_timeout"
   | "process_exited"
   | "process_spawn_failed"
+  | "start_conflict"
   | "start_stopped"
   | "health_check_failed"
   | "stop_failed";

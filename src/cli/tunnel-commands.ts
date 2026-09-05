@@ -82,6 +82,7 @@ export function registerTunnelCommands(program: Command): void {
           hostname: opts.hostname,
         });
         if (!result.ok) {
+          process.exitCode = 1;
           const payload = {
             ...tunnelChoicePayload(workspace),
             ok: false,

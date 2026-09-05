@@ -111,6 +111,16 @@ export class CloudflaredQuickTunnel implements TunnelProvider {
   async start(localPort: number): Promise<TunnelStartResult> {
     if (this.child && this.url) return { ok: true, provider: this.name, url: this.url };
     if (this.starting) return this.starting;
+    if (this.child) {
+      return {
+        ok: false,
+        provider: this.name,
+        error: tunnelError(
+          "start_conflict",
+          "A tunnel process is still running without a public URL; stop it before starting another"
+        ),
+      };
+    }
     const starting = this.startProcess(localPort);
     this.starting = starting;
     try {
@@ -168,11 +178,12 @@ export class CloudflaredQuickTunnel implements TunnelProvider {
 
       const isAlive = (): boolean => this.child === child;
 
-      const stopChild = (): void => {
+      const stopChild = (): boolean => {
+        if (this.child !== child) return true;
         try {
-          child.kill("SIGTERM");
+          return child.kill("SIGTERM");
         } catch {
-          // The process may have exited between the state check and kill().
+          return false;
         }
       };
 
@@ -187,25 +198,31 @@ export class CloudflaredQuickTunnel implements TunnelProvider {
 
       const fail = (error: unknown, code?: TunnelError["code"]): void => {
         finish(() => {
-          stopChild();
-          if (this.child === child) {
+          const stopped = stopChild();
+          if (stopped && this.child === child) {
             this.child = null;
             this.url = null;
           }
           const resolvedCode =
-            code ??
-            this.lastFailureCode ??
-            (error instanceof Error && error.message.includes("timed out")
-              ? "start_timeout"
-              : error instanceof Error && error.message.includes("stopped")
-                ? "start_stopped"
-                : error instanceof Error && error.message.includes("spawn")
-                  ? "process_spawn_failed"
-                  : "process_exited");
+            !stopped
+              ? "stop_failed"
+              : code ??
+                this.lastFailureCode ??
+                (error instanceof Error && error.message.includes("timed out")
+                  ? "start_timeout"
+                  : error instanceof Error && error.message.includes("stopped")
+                    ? "start_stopped"
+                    : error instanceof Error && error.message.includes("spawn")
+                      ? "process_spawn_failed"
+                      : "process_exited");
+          const message = error instanceof Error ? error.message : String(error);
           resolve({
             ok: false,
             provider: this.name,
-            error: tunnelError(resolvedCode, error instanceof Error ? error.message : String(error)),
+            error: tunnelError(
+              resolvedCode,
+              stopped ? message : `${message}; tunnel process could not be stopped`
+            ),
           });
         });
       };
@@ -297,7 +314,7 @@ export class CloudflaredQuickTunnel implements TunnelProvider {
           this.child = null;
           this.url = null;
         }
-        if (!settled) fail(error);
+        if (!settled) fail(error, "process_spawn_failed");
       });
       child.on("exit", (code) => {
         closeReaders();
@@ -320,11 +337,11 @@ export class CloudflaredQuickTunnel implements TunnelProvider {
   }
 
   async stop(): Promise<TunnelStopResult> {
-    this.cancelStart?.();
     if (this.child) {
+      const child = this.child;
       const killed = (() => {
         try {
-          return this.child!.kill("SIGTERM");
+          return child.kill("SIGTERM");
         } catch {
           return false;
         }
@@ -336,7 +353,10 @@ export class CloudflaredQuickTunnel implements TunnelProvider {
           error: { code: "stop_failed", message: "Failed to stop tunnel" },
         };
       }
-      this.child = null;
+      if (this.child === child) this.child = null;
+      this.cancelStart?.();
+    } else {
+      this.cancelStart?.();
     }
     this.url = null;
     this.lastError = null;
@@ -351,12 +371,13 @@ export class CloudflaredQuickTunnel implements TunnelProvider {
   }
 
   status(): TunnelStatus {
+    const processRunning = this.child !== null;
     return {
-      running: this.child !== null && this.url !== null,
+      running: processRunning,
       url: this.url,
       provider: this.name,
       detail: this.lastError ?? undefined,
-      state: this.child !== null && this.url !== null ? "running" : "stopped",
+      state: processRunning ? (this.url ? "running" : "starting") : "stopped",
     };
   }
 

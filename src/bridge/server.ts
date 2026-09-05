@@ -230,9 +230,15 @@ export async function startBridge(opts: BridgeOptions): Promise<Bridge> {
   const shutdown = async (): Promise<void> => {
     if (closed) return;
     closed = true;
-    await tunnel.stop().catch(() => undefined);
+    const stopped = await tunnel.stop().catch((error: unknown) => {
+      logger.error(`Tunnel stop failed during shutdown: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    });
+    if (stopped && !stopped.ok) {
+      logger.error(`Tunnel stop failed during shutdown: ${stopped.error.message}`);
+    }
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    if (opts.persistRuntime !== false) clearRuntimeState(workspace.id);
+    if (opts.persistRuntime !== false && stopped?.ok) clearRuntimeState(workspace.id);
     logger.info("Bridge stopped");
   };
 
