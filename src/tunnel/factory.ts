@@ -1,22 +1,28 @@
+import { nullLogger, type Logger } from "../logger/index.js";
 import { createCloudflareTransportProvider } from "../compat/legacy/cloudflare/provider.js";
-import { SecureMcpTunnelClient, type SecureMcpClientOptions } from "./secure-mcp.js";
+import { SecureMcpTunnelClient, type SecureMcpTunnelOptions } from "./secure-mcp.js";
 import type { TunnelProvider } from "./provider.js";
 
-export type TunnelMode = "secure-mcp" | "legacy-cloudflare";
-
-export interface TunnelFactoryOptions {
-  mode: TunnelMode;
-  workspaceId: string;
-  logger?: { info(message: string): void; error(message: string): void };
-  secureMcp?: SecureMcpClientOptions;
+export interface SecureMcpTransportConfig {
+  kind: "secure-mcp";
+  secureMcp: SecureMcpTunnelOptions;
 }
 
-export function createTunnelProvider(options: TunnelFactoryOptions): TunnelProvider {
-  if (options.mode === "legacy-cloudflare") {
-    return createCloudflareTransportProvider(options.workspaceId, options.logger as never);
+export interface LegacyCloudflareTransportConfig {
+  kind: "legacy-cloudflare";
+  workspaceId: string;
+  logger?: Logger;
+}
+
+export type TunnelTransportConfig = SecureMcpTransportConfig | LegacyCloudflareTransportConfig;
+
+export function createTunnelProvider(config: TunnelTransportConfig): TunnelProvider {
+  if (config.kind === "secure-mcp") {
+    return new SecureMcpTunnelClient(config.secureMcp);
   }
-  if (!options.secureMcp) {
-    throw new Error("secureMcp options are required when mode is \"secure-mcp\"");
-  }
-  return new SecureMcpTunnelClient(options.secureMcp) as unknown as TunnelProvider;
+  return createCloudflareTransportProvider(config.workspaceId, config.logger ?? nullLogger);
+}
+
+export function createSecureMcpTunnelProvider(options: SecureMcpTunnelOptions): TunnelProvider {
+  return new SecureMcpTunnelClient(options);
 }

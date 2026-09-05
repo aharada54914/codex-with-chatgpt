@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import type { Logger } from "../logger/index.js";
 import { nullLogger } from "../logger/index.js";
 import { findBinary } from "./detect.js";
-import type { TunnelError } from "./provider.js";
+import type { TunnelDoctorReport, TunnelError, TunnelStatus } from "./provider.js";
 
 export type SecureMcpErrorCode =
   | TunnelError["code"]
@@ -78,7 +78,7 @@ export class SecureMcpTunnelClient {
     if (options.mcpCommand !== undefined) this.mcpCommand = options.mcpCommand;
   }
 
-  status(): SecureMcpStatus {
+  status(): TunnelStatus & SecureMcpStatus {
     return {
       configured: Boolean(this.profile && this.tunnelId && this.mcpCommand),
       running: Boolean(this.child && !this.child.killed),
@@ -86,10 +86,13 @@ export class SecureMcpTunnelClient {
       tunnelId: this.tunnelId,
       command: this.mcpCommand,
       pid: this.child?.pid ?? null,
+      url: this.child ? `secure-mcp://${this.profile ?? "local"}` : null,
+      provider: this.name,
+      state: this.child ? "running" : "stopped",
     };
   }
 
-  async doctor(): Promise<SecureMcpDoctorReport> {
+  async doctor(): Promise<TunnelDoctorReport & SecureMcpDoctorReport> {
     const binaryPath = this.binary();
     const problems: string[] = [];
     const errors: SecureMcpError[] = [];
@@ -105,6 +108,9 @@ export class SecureMcpTunnelClient {
         commandConfigured: Boolean(this.mcpCommand),
         problems,
         errors,
+        provider: this.name,
+        running: false,
+        url: null,
       };
     }
     const status = this.status();
@@ -133,6 +139,9 @@ export class SecureMcpTunnelClient {
         commandConfigured: Boolean(status.command),
         problems,
         errors,
+        provider: this.name,
+        running: status.running,
+        url: status.url,
       };
     }
     try {
@@ -154,6 +163,9 @@ export class SecureMcpTunnelClient {
           commandConfigured: true,
           problems,
           errors,
+          provider: this.name,
+          running: status.running,
+          url: status.url,
         };
       }
       errors.push(secureMcpError("doctor_failed", "tunnel-client doctor reported a failure"));
@@ -167,6 +179,9 @@ export class SecureMcpTunnelClient {
         commandConfigured: true,
         problems,
         errors,
+        provider: this.name,
+        running: status.running,
+        url: status.url,
       };
     } catch (error) {
       errors.push(secureMcpError("doctor_failed", error instanceof Error ? error.message : String(error)));
@@ -179,6 +194,9 @@ export class SecureMcpTunnelClient {
         commandConfigured: true,
         problems: [...problems, "tunnel-client doctor could not start"],
         errors,
+        provider: this.name,
+        running: status.running,
+        url: status.url,
       };
     }
   }
@@ -204,7 +222,7 @@ export class SecureMcpTunnelClient {
     return { ok: true };
   }
 
-  async start(_localPort?: number): Promise<{ ok: true; provider: string; pid: number | null; url: string | null } | { ok: false; provider: string; error: SecureMcpError }> {
+  async start(_localPort?: number): Promise<{ ok: true; provider: string; url: string; pid: number | null } | { ok: false; provider: string; error: SecureMcpError }> {
     const binaryPath = this.binary();
     if (!binaryPath) return { ok: false, provider: this.name, error: secureMcpError("binary_not_found", "tunnel-client is not installed") };
     const status = this.status();
@@ -217,7 +235,7 @@ export class SecureMcpTunnelClient {
         windowsHide: true,
       });
       this.logger.info(`Started Secure MCP Tunnel profile=${status.profile}`);
-      return { ok: true, provider: this.name, pid: this.child.pid ?? null, url: this.getPublicUrl() };
+      return { ok: true, provider: this.name, url: `secure-mcp://${status.profile}`, pid: this.child.pid ?? null };
     } catch (error) {
       return {
         ok: false,
@@ -227,14 +245,14 @@ export class SecureMcpTunnelClient {
     }
   }
 
-  async restart(_localPort?: number): Promise<{ ok: true; provider: string; pid: number | null; url: string | null } | { ok: false; provider: string; error: SecureMcpError }> {
+  async restart(_localPort?: number): Promise<{ ok: true; provider: string; url: string; pid: number | null } | { ok: false; provider: string; error: SecureMcpError }> {
     const stopped = await this.stop();
     if (!stopped.ok) return stopped;
     return this.start();
   }
 
   getPublicUrl(): string | null {
-    return null;
+    return this.child ? `secure-mcp://${this.profile ?? "local"}` : null;
   }
 
   async stop(): Promise<{ ok: true; provider: string } | { ok: false; provider: string; error: SecureMcpError }> {
@@ -243,8 +261,8 @@ export class SecureMcpTunnelClient {
       const killed = this.child.kill("SIGTERM");
       this.child = null;
       if (!killed) {
-        return { ok: false, provider: this.name, error: secureMcpError("stop_failed", "secure MCP tunnel refused SIGTERM") };
-      }
+      return { ok: false, provider: this.name, error: secureMcpError("stop_failed", "secure MCP tunnel refused SIGTERM") };
+    }
       return { ok: true, provider: this.name };
     } catch (error) {
       return {
